@@ -36,7 +36,7 @@ case class RocketCoreParams(
   mcontextWidth: Int = 0,
   scontextWidth: Int = 0,
   nPMPs: Int = 8,
-  nPerfCounters: Int = 0,
+  nPerfCounters: Int = 29,
   haveBasicCounters: Boolean = true,
   haveCFlush: Boolean = false,
   misaWritable: Boolean = true,
@@ -212,7 +212,25 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
       ("D$ release", () => io.dmem.perf.release),
       ("ITLB miss", () => io.imem.perf.tlbMiss),
       ("DTLB miss", () => io.dmem.perf.tlbMiss),
-      ("L2 TLB miss", () => io.ptw.perf.l2miss)))))
+      ("L2 TLB miss", () => io.ptw.perf.l2miss))),
+      new EventSet((mask, hits) => (mask & hits).orR, Seq(
+      ("Ex PC Valid", () => ex_pc_valid),
+      ("Mem PC Valid", () => mem_pc_valid),
+      ("WB PC Valid", () => wb_pc_valid),
+      ("Ex Reg Valid", () => ex_reg_valid),
+      ("Mem PC Valid", () => mem_reg_valid),
+      ("WB PC Valid", () => wb_reg_valid),
+      ("Ex Replay", () => ex_reg_replay),
+      ("Mem replay", () => mem_reg_replay),
+      ("Wb replay", () => wb_reg_replay),
+      // Here we probably don't need to reduce, only look at inst(0)
+      ("IBuf valid", () => ibuf.io.inst.map(_.valid ).reduce(_ ||      _)), 
+      ("IBuf replay", () => ibuf.io.inst.map(_.bits.replay).reduce(_ ||      _)), 
+      // ID decode should always be able to handle one instr per cycle with no exceptions. Stalls here must be triggered for other reasons.
+      ("ID kill", () => !ctrl_killd),
+      // Todo: we are not capturing all the stalls here. 
+      ("ID stall", () => (take_pc_mem_wb ))
+    ))))
 
   val pipelinedMul = usingMulDiv && mulDivParams.mulUnroll == xLen
   val decode_table = {
@@ -1355,3 +1373,4 @@ object ImmGen {
     Cat(sign, b30_20, b19_12, b11, b10_5, b4_1, b0).asSInt
   }
 }
+
