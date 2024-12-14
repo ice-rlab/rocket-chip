@@ -213,22 +213,15 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
       ("ITLB miss", () => io.imem.perf.tlbMiss),
       ("DTLB miss", () => io.dmem.perf.tlbMiss),
       ("L2 TLB miss", () => io.ptw.perf.l2miss))),
-      new EventSet((mask, hits) => (mask & hits).orR, Seq(
+    new EventSet((mask, hits) => (mask & hits).orR, Seq(
       ("Ex PC Valid", () => ex_pc_valid),
       ("Mem PC Valid", () => mem_pc_valid),
       ("WB PC Valid", () => wb_pc_valid),
       ("Ex Reg Valid", () => ex_reg_valid),
       ("Mem PC Valid", () => mem_reg_valid),
       ("WB PC Valid", () => wb_reg_valid),
-      ("Ex Replay", () => ex_reg_replay),
-      ("Mem replay", () => mem_reg_replay),
-      ("Wb replay", () => wb_reg_replay),
-      // Here we probably don't need to reduce, only look at inst(0)
       ("IBuf valid", () => ibuf.io.inst(0).valid), 
       ("IBuf cache-block", () => !ibuf.io.inst(0).valid && icache_blocked), 
-      // ID decode should always be able to handle one instr per cycle with no exceptions. Stalls here must be triggered for other reasons.
-      ("ID kill", () => ctrl_killd),
-      // Todo: we are not capturing all the stalls here. 
       ("ID stall", () => ctrl_stalld_w && !take_pc_mem_wb),
       ("Ctrl dependency", () => id_ex_hazard), 
       ("Data dependency", () => id_mem_hazard || id_wb_hazard), 
@@ -236,7 +229,16 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
       ("Data hazard ex", () => data_hazard_ex),
       ("Data hazard mem", () => data_hazard_mem),
       ("Data hazard wb", () => data_hazard_wb),
-      ("IBuf ready", () => ibuf.io.inst(0).ready && ibuf.io.inst(0).valid)
+      ("IBuf ready", () => ibuf.io.inst(0).ready && ibuf.io.inst(0).valid),
+      ("Recovering", () => recovering)
+
+    )),
+    new EventSet((mask, hits) => (mask & hits).orR, Seq(
+        ("uops issued", () => !ctrl_killd),
+        ("Fetch Bubbles", () => recovering || ibuf.io.inst(0).valid),
+        ("Recovering", () => recovering),
+        ("Fp stall", () => ctrl_stall_fp),
+        ("Div stall", () => ctrl_stall_div)
     ))))
 
   val pipelinedMul = usingMulDiv && mulDivParams.mulUnroll == xLen
@@ -309,6 +311,10 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val mem_br_taken = Reg(Bool())
   val take_pc_mem = Wire(Bool())
   val mem_reg_wphit          = Reg(Vec(nBreakpoints, Bool()))
+
+  // Additional for TMA
+  val recovering = Reg(Bool())
+  val recovering_csr_flush = Reg(Bool())
 
   val wb_reg_valid           = Reg(Bool())
   val wb_reg_xcpt            = Reg(Bool())
@@ -652,7 +658,10 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val mem_cfi_taken = (mem_ctrl.branch && mem_br_taken) || mem_ctrl.jalr || mem_ctrl.jal
   val mem_direction_misprediction = mem_ctrl.branch && mem_br_taken =/= (usingBTB.B && mem_reg_btb_resp.taken)
   val mem_misprediction = if (usingBTB) mem_wrong_npc else mem_cfi_taken
-  take_pc_mem := mem_reg_valid && !mem_reg_xcpt && (mem_misprediction || mem_reg_sfence)
+  val tk_pc_mem =  mem_reg_valid && !mem_reg_xcpt && (mem_misprediction || mem_reg_sfence)
+
+  take_pc_mem := tk_pc_mem
+  recovering :=  tk_pc_mem || (recovering && !mem_pc_valid)
 
   mem_reg_valid := !ctrl_killx
   mem_reg_replay := !take_pc_mem_wb && replay_ex
@@ -1071,6 +1080,9 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     io.traceStall // don't care
   ctrl_stalld_w := ctrl_stalld 
   ctrl_killd := !ibuf.io.inst(0).valid || ibuf.io.inst(0).bits.replay || take_pc_mem_wb || ctrl_stalld || csr.io.interrupt
+
+  val ctrl_stall_fp = id_ctrl.fp && id_stall_fpu
+  val ctrl_stall_div = (id_ctrl.div && (!(div.io.req.ready || (div.io.resp.valid && !wb_wxd)) || div.io.req.valid) )
 
   io.imem.req.valid := take_pc
   io.imem.req.bits.speculative := !take_pc_wb
