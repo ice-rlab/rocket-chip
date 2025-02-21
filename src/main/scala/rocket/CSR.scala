@@ -374,6 +374,17 @@ class VType(implicit p: Parameters) extends CoreBundle {
   }
 }
 
+class SuperscalarCSRFile(
+  perfEventSets: SuperscalarEventSets = new SuperscalarEventSets(Seq()),
+  customCSRs: Seq[CustomCSR] = Nil,
+  roccCSRs: Seq[CustomCSR] = Nil,
+  hasBeu: Boolean = false)(implicit p: Parameters)
+    extends CSRFile(null, customCSRs, roccCSRs, hasBeu)(p) {
+
+  override def maskEventSelector(wdata: UInt): UInt = perfEventSets.maskEventSelector(wdata)
+
+}
+
 class CSRFile(
   perfEventSets: EventSets = new EventSets(Seq()),
   customCSRs: Seq[CustomCSR] = Nil,
@@ -387,6 +398,8 @@ class CSRFile(
   })
 
   io.rw_stall := false.B
+
+  def maskEventSelector(wdata: UInt): UInt = perfEventSets.maskEventSelector(wdata)
 
   val reset_mstatus = WireDefault(0.U.asTypeOf(new MStatus()))
   reset_mstatus.mpp := PRV.M.U
@@ -1300,7 +1313,7 @@ class CSRFile(
 
     for (((e, c), i) <- (reg_hpmevent zip reg_hpmcounter).zipWithIndex) {
       writeCounter(i + CSR.firstMHPC, c, wdata)
-      when (decoded_addr(i + CSR.firstHPE)) { e := perfEventSets.maskEventSelector(wdata) }
+      when (decoded_addr(i + CSR.firstHPE)) { e := maskEventSelector(wdata) }
     }
     if (coreParams.haveBasicCounters) {
       when (decoded_addr(CSRs.mcountinhibit)) { reg_mcountinhibit := wdata & ~2.U(xLen.W) }  // mcountinhibit bit [1] is tied zero

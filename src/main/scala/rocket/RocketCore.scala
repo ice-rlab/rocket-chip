@@ -7,6 +7,8 @@ import chisel3._
 import chisel3.util._
 import chisel3.withClock
 import org.chipsalliance.cde.config.Parameters
+import freechips.rocketchip.diplomacy.ValName
+import freechips.rocketchip.tilelink.TLEphemeralNode
 import freechips.rocketchip.tile._
 import freechips.rocketchip.util._
 import freechips.rocketchip.util.property
@@ -82,7 +84,8 @@ case class RocketCoreParams(
 }
 
 trait HasRocketCoreParameters extends HasCoreParameters {
-  lazy val rocketParams: RocketCoreParams = tileParams.core.asInstanceOf[RocketCoreParams]
+  //lazy val rocketParams: RocketCoreParams = tileParams.core.asInstanceOf[RocketCoreParams]
+  lazy val rocketParams: RocketCoreParams = coreParams.asInstanceOf[RocketCoreParams]
 
   val fastLoadWord = rocketParams.fastLoadWord
   val fastLoadByte = rocketParams.fastLoadByte
@@ -149,12 +152,36 @@ trait HasRocketCoreIO extends HasRocketCoreParameters {
   })
 }
 
+class BareRocket(implicit p: Parameters)
+  extends Rocket(null)(p.alterMap(Map(
+      CoreKey -> new RocketCoreParams,
+      TileKey -> null,
+      TileVisibilityNodeKey -> TLEphemeralNode()(ValName("tile_master")),
+      LookupByHartId -> null
+    ))) {}
 
-class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
+class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     with HasRocketCoreParameters
     with HasRocketCoreIO {
-  def nTotalRoCCCSRs = tile.roccCSRs.flatten.size
   import ALU._
+  // tile-derived parameters
+  def nTotalRoCCCSRs =
+    if (tile == null) 0
+    else tile.roccCSRs.flatten.size
+  def dcacheFlushOnFenceI =
+    if (tile == null) false
+    else tile.dcache.flushOnFenceI
+  def dcacheCanSupportCFlushLine =
+    if (tile == null) false
+    else tile.dcache.canSupportCFlushLine
+  def roccCSRsFlatten =
+    if (tile == null) Seq()
+    else tile.roccCSRs.flatten
+  def beuAddrIsDefined =
+    if (tile == null) false
+    else tile.rocketParams.beuAddr.isDefined
+  def dcacheDataECCIsDefined = false
+    // tileParams.dcache.get.dataECC.isDefined
 
   val clock_en_reg = RegInit(true.B)
   val long_latency_stall = Reg(Bool())
@@ -170,101 +197,127 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   // performance counters
   def pipelineIDToWB[T <: Data](x: T): T =
     RegEnable(RegEnable(RegEnable(x, !ctrl_killd), ex_pc_valid), mem_pc_valid)
-  val perfEvents = new EventSets(Seq(
-    new EventSet((mask, hits) => Mux(wb_xcpt, mask(0), wb_valid && pipelineIDToWB((mask & hits).orR)), Seq(
-      ("exception", () => false.B),
-      ("load", () => id_ctrl.mem && id_ctrl.mem_cmd === M_XRD && !id_ctrl.fp),
-      ("store", () => id_ctrl.mem && id_ctrl.mem_cmd === M_XWR && !id_ctrl.fp),
-      ("amo", () => usingAtomics.B && id_ctrl.mem && (isAMO(id_ctrl.mem_cmd) || id_ctrl.mem_cmd.isOneOf(M_XLR, M_XSC))),
-      ("system", () => id_ctrl.csr =/= CSR.N),
-      ("arith", () => id_ctrl.wxd && !(id_ctrl.jal || id_ctrl.jalr || id_ctrl.mem || id_ctrl.fp || id_ctrl.mul || id_ctrl.div || id_ctrl.csr =/= CSR.N)),
-      ("branch", () => id_ctrl.branch),
-      ("jal", () => id_ctrl.jal),
-      ("jalr", () => id_ctrl.jalr))
-      ++ (if (!usingMulDiv) Seq() else Seq(
-        ("mul", () => if (pipelinedMul) id_ctrl.mul else id_ctrl.div && (id_ctrl.alu_fn & FN_DIV) =/= FN_DIV),
-        ("div", () => if (pipelinedMul) id_ctrl.div else id_ctrl.div && (id_ctrl.alu_fn & FN_DIV) === FN_DIV)))
-      ++ (if (!usingFPU) Seq() else Seq(
-        ("fp load", () => id_ctrl.fp && io.fpu.dec.ldst && io.fpu.dec.wen),
-        ("fp store", () => id_ctrl.fp && io.fpu.dec.ldst && !io.fpu.dec.wen),
-        ("fp add", () => id_ctrl.fp && io.fpu.dec.fma && io.fpu.dec.swap23),
-        ("fp mul", () => id_ctrl.fp && io.fpu.dec.fma && !io.fpu.dec.swap23 && !io.fpu.dec.ren3),
-        ("fp mul-add", () => id_ctrl.fp && io.fpu.dec.fma && io.fpu.dec.ren3),
-        ("fp div/sqrt", () => id_ctrl.fp && (io.fpu.dec.div || io.fpu.dec.sqrt)),
-        ("fp other", () => id_ctrl.fp && !(io.fpu.dec.ldst || io.fpu.dec.fma || io.fpu.dec.div || io.fpu.dec.sqrt))))),
-    new EventSet((mask, hits) => (mask & hits).orR, Seq(
-      ("load-use interlock", () => id_ex_hazard && ex_ctrl.mem || id_mem_hazard && mem_ctrl.mem || id_wb_hazard && wb_ctrl.mem),
-      ("long-latency interlock", () => id_sboard_hazard),
-      ("csr interlock", () => id_ex_hazard && ex_ctrl.csr =/= CSR.N || id_mem_hazard && mem_ctrl.csr =/= CSR.N || id_wb_hazard && wb_ctrl.csr =/= CSR.N),
-      ("I$ blocked", () => icache_blocked),
-      ("D$ blocked", () => id_ctrl.mem && dcache_blocked),
-      ("branch misprediction", () => take_pc_mem && mem_direction_misprediction),
-      ("control-flow target misprediction", () => take_pc_mem && mem_misprediction && mem_cfi && !mem_direction_misprediction && !icache_blocked),
-      ("flush", () => wb_reg_flush_pipe),
-      ("replay", () => replay_wb))
-      ++ (if (!usingMulDiv) Seq() else Seq(
-        ("mul/div interlock", () => id_ex_hazard && (ex_ctrl.mul || ex_ctrl.div) || id_mem_hazard && (mem_ctrl.mul || mem_ctrl.div) || id_wb_hazard && wb_ctrl.div)))
-      ++ (if (!usingFPU) Seq() else Seq(
-        ("fp interlock", () => id_ex_hazard && ex_ctrl.fp || id_mem_hazard && mem_ctrl.fp || id_wb_hazard && wb_ctrl.fp || id_ctrl.fp && id_stall_fpu)))),
-    new EventSet((mask, hits) => (mask & hits).orR, Seq(
-      ("I$ miss", () => io.imem.perf.acquire),
-      ("D$ miss", () => io.dmem.perf.acquire),
-      ("D$ release", () => io.dmem.perf.release),
-      ("ITLB miss", () => io.imem.perf.tlbMiss),
-      ("DTLB miss", () => io.dmem.perf.tlbMiss),
-      ("L2 TLB miss", () => io.ptw.perf.l2miss))),
-    new EventSet((mask, hits) => (mask & hits).orR, Seq(
-      ("Ex PC Valid", () => ex_pc_valid),
-      ("Mem PC Valid", () => mem_pc_valid),
-      ("WB PC Valid", () => wb_pc_valid),
-      ("Ex Reg Valid", () => ex_reg_valid),
-      ("Mem PC Valid", () => mem_reg_valid),
-      ("WB PC Valid", () => wb_reg_valid),
-      ("IBuf valid", () => ibuf.io.inst(0).valid), 
-      ("IBuf cache-block", () => !ibuf.io.inst(0).valid && icache_blocked), 
-      ("ID stall", () => ctrl_stalld_w && !take_pc_mem_wb),
-      ("Ctrl dependency", () => id_ex_hazard), 
-      ("Data dependency", () => id_mem_hazard || id_wb_hazard), 
-      ("Stall due to mispr", () => take_pc_mem_wb),
-      ("Data hazard ex", () => data_hazard_ex),
-      ("Data hazard mem", () => data_hazard_mem),
-      ("Data hazard wb", () => data_hazard_wb),
-      ("IBuf ready", () => ibuf.io.inst(0).ready && ibuf.io.inst(0).valid),
-      ("Recovering", () => recovering)
-
-    )),
-    new EventSet((mask, hits) => (mask & hits).orR, Seq(
-        ("uops issued", () => !ctrl_killd),
-        ("Fetch Bubbles", () => recovering || ibuf.io.inst(0).valid),
-        ("Recovering", () => recovering),
-        ("Fp stall", () => ctrl_stall_fp),
-        ("Div stall", () => ctrl_stall_div)
-    ))))
+  val perfEvents = new SuperscalarEventSets(Seq(
+    // Seq[(Seq[EventSet], (UInt, UInt) => UInt)]
+    // one element for each event set, each internal sequence has event sets of the same size from each pipeline
+    (
+      Seq(
+        new EventSet((mask, hits) => Mux(wb_xcpt, mask(0), wb_valid && pipelineIDToWB((mask & hits).orR)), Seq(
+          ("exception", () => false.B),
+          ("load", () => id_ctrl.mem && id_ctrl.mem_cmd === M_XRD && !id_ctrl.fp),
+          ("store", () => id_ctrl.mem && id_ctrl.mem_cmd === M_XWR && !id_ctrl.fp),
+          ("amo", () => usingAtomics.B && id_ctrl.mem && (isAMO(id_ctrl.mem_cmd) || id_ctrl.mem_cmd.isOneOf(M_XLR, M_XSC))),
+          ("system", () => id_ctrl.csr =/= CSR.N),
+          ("arith", () => id_ctrl.wxd && !(id_ctrl.jal || id_ctrl.jalr || id_ctrl.mem || id_ctrl.fp || id_ctrl.mul || id_ctrl.div || id_ctrl.csr =/= CSR.N)),
+          ("branch", () => id_ctrl.branch),
+          ("jal", () => id_ctrl.jal),
+          ("jalr", () => id_ctrl.jalr))
+          ++ (if (!usingMulDiv) Seq() else Seq(
+            ("mul", () => if (pipelinedMul) id_ctrl.mul else id_ctrl.div && (id_ctrl.alu_fn & aluFn.FN_DIV) =/= aluFn.FN_DIV),
+            ("div", () => if (pipelinedMul) id_ctrl.div else id_ctrl.div && (id_ctrl.alu_fn & aluFn.FN_DIV) === aluFn.FN_DIV)))
+          ++ (if (!usingFPU) Seq() else Seq(
+            ("fp load", () => id_ctrl.fp && io.fpu.dec.ldst && io.fpu.dec.wen),
+            ("fp store", () => id_ctrl.fp && io.fpu.dec.ldst && !io.fpu.dec.wen),
+            ("fp add", () => id_ctrl.fp && io.fpu.dec.fma && io.fpu.dec.swap23),
+            ("fp mul", () => id_ctrl.fp && io.fpu.dec.fma && !io.fpu.dec.swap23 && !io.fpu.dec.ren3),
+            ("fp mul-add", () => id_ctrl.fp && io.fpu.dec.fma && io.fpu.dec.ren3),
+            ("fp div/sqrt", () => id_ctrl.fp && (io.fpu.dec.div || io.fpu.dec.sqrt)),
+            ("fp other", () => id_ctrl.fp && !(io.fpu.dec.ldst || io.fpu.dec.fma || io.fpu.dec.div || io.fpu.dec.sqrt)))
+        ))
+      ),
+      (a, b) => a + b
+    ),
+    (
+      Seq(
+        new EventSet((mask, hits) => (mask & hits).orR, Seq(
+          ("load-use interlock", () => id_ex_hazard && ex_ctrl.mem || id_mem_hazard && mem_ctrl.mem || id_wb_hazard && wb_ctrl.mem),
+          ("long-latency interlock", () => id_sboard_hazard),
+          ("csr interlock", () => id_ex_hazard && ex_ctrl.csr =/= CSR.N || id_mem_hazard && mem_ctrl.csr =/= CSR.N || id_wb_hazard && wb_ctrl.csr =/= CSR.N),
+          ("I$ blocked", () => icache_blocked),
+          ("D$ blocked", () => id_ctrl.mem && dcache_blocked),
+          ("branch misprediction", () => take_pc_mem && mem_direction_misprediction),
+          ("control-flow target misprediction", () => take_pc_mem && mem_misprediction && mem_cfi && !mem_direction_misprediction && !icache_blocked),
+          ("flush", () => wb_reg_flush_pipe),
+          ("replay", () => replay_wb))
+          ++ (if (!usingMulDiv) Seq() else Seq(
+            ("mul/div interlock", () => id_ex_hazard && (ex_ctrl.mul || ex_ctrl.div) || id_mem_hazard && (mem_ctrl.mul || mem_ctrl.div) || id_wb_hazard && wb_ctrl.div)))
+          ++ (if (!usingFPU) Seq() else Seq(
+            ("fp interlock", () => id_ex_hazard && ex_ctrl.fp || id_mem_hazard && mem_ctrl.fp || id_wb_hazard && wb_ctrl.fp || id_ctrl.fp && id_stall_fpu))
+        ))
+      ),
+      (a, b) => a + b
+    ),
+    (
+      Seq(
+        new EventSet((mask, hits) => (mask & hits).orR, Seq(
+          ("I$ miss", () => io.imem.perf.acquire),
+          ("D$ miss", () => io.dmem.perf.acquire),
+          ("D$ release", () => io.dmem.perf.release),
+          ("ITLB miss", () => io.imem.perf.tlbMiss),
+          ("DTLB miss", () => io.dmem.perf.tlbMiss),
+          ("L2 TLB miss", () => io.ptw.perf.l2miss)
+        ))
+      ),
+      (a, b) => a + b
+    ),
+    (
+      Seq(
+        new EventSet((mask, hits) => (mask & hits).orR, Seq(
+          ("Ex PC Valid", () => ex_pc_valid),
+          ("Mem PC Valid", () => mem_pc_valid),
+          ("WB PC Valid", () => wb_pc_valid),
+          ("Ex Reg Valid", () => ex_reg_valid),
+          ("Mem Reg Valid", () => mem_reg_valid),
+          ("WB Reg Valid", () => wb_reg_valid),
+          ("IBuf valid", () => ibuf.io.inst(0).valid),
+          ("IBuf cache-block", () => !ibuf.io.inst(0).valid && icache_blocked),
+          ("ID stall", () => ctrl_stalld_w && !take_pc_mem_wb),
+          ("Ctrl dependency", () => id_ex_hazard),
+          ("Data dependency", () => id_mem_hazard || id_wb_hazard),
+          ("Stall due to mispr", () => take_pc_mem_wb),
+          ("Data hazard ex", () => data_hazard_ex),
+          ("Data hazard mem", () => data_hazard_mem),
+          ("Data hazard wb", () => data_hazard_wb),
+          ("IBuf ready", () => ibuf.io.inst(0).ready && ibuf.io.inst(0).valid),
+          ("Recovering", () => recovering)
+        ))
+      ),
+      (a, b) => a + b
+    ),
+    (
+      Seq(
+        new EventSet((mask, hits) => (mask & hits).orR, Seq(
+            ("uops issued", () => !ctrl_killd),
+            ("Fetch Bubbles", () => recovering || ibuf.io.inst(0).valid),
+            ("Recovering", () => recovering),
+            ("Fp stall", () => ctrl_stall_fp),
+            ("Div stall", () => ctrl_stall_div)
+        ))
+      ),
+      (a, b) => a + b
+    )
+  ))
 
   val pipelinedMul = usingMulDiv && mulDivParams.mulUnroll == xLen
   val decode_table = {
-    (if (usingMulDiv) new MDecode(pipelinedMul) +: (xLen > 32).option(new M64Decode(pipelinedMul)).toSeq else Nil) ++:
-    (if (usingAtomics) new ADecode +: (xLen > 32).option(new A64Decode).toSeq else Nil) ++:
-    (if (fLen >= 32)    new FDecode +: (xLen > 32).option(new F64Decode).toSeq else Nil) ++:
-    (if (fLen >= 64)    new DDecode +: (xLen > 32).option(new D64Decode).toSeq else Nil) ++:
-    (if (minFLen == 16) new HDecode +: (xLen > 32).option(new H64Decode).toSeq ++: (fLen >= 64).option(new HDDecode).toSeq else Nil) ++:
-    (usingRoCC.option(new RoCCDecode)) ++:
-    (if (xLen == 32) new I32Decode else new I64Decode) +:
-    (usingVM.option(new SVMDecode)) ++:
-    (usingSupervisor.option(new SDecode)) ++:
-    (usingHypervisor.option(new HypervisorDecode)) ++:
-    ((usingHypervisor && (xLen == 64)).option(new Hypervisor64Decode)) ++:
-    (usingDebug.option(new DebugDecode)) ++:
-    (usingNMI.option(new NMIDecode)) ++:
-    (usingConditionalZero.option(new ConditionalZeroDecode)) ++:
-    Seq(new FenceIDecode(tile.dcache.flushOnFenceI)) ++:
-    coreParams.haveCFlush.option(new CFlushDecode(tile.dcache.canSupportCFlushLine)) ++:
-    rocketParams.haveCease.option(new CeaseDecode) ++:
-    usingVector.option(new VCFGDecode) ++:
-    (if (coreParams.useZba) new ZbaDecode +: (xLen > 32).option(new Zba64Decode).toSeq else Nil) ++:
-    (if (coreParams.useZbb) Seq(new ZbbDecode, if (xLen == 32) new Zbb32Decode else new Zbb64Decode) else Nil) ++:
-    coreParams.useZbs.option(new ZbsDecode) ++:
-    Seq(new IDecode)
+    (if (usingMulDiv) new MDecode(pipelinedMul, aluFn) +: (xLen > 32).option(new M64Decode(pipelinedMul, aluFn)).toSeq else Nil) ++:
+    (if (usingAtomics) new ADecode(aluFn) +: (xLen > 32).option(new A64Decode(aluFn)).toSeq else Nil) ++:
+    (if (fLen >= 32)    new FDecode(aluFn) +: (xLen > 32).option(new F64Decode(aluFn)).toSeq else Nil) ++:
+    (if (fLen >= 64)    new DDecode(aluFn) +: (xLen > 32).option(new D64Decode(aluFn)).toSeq else Nil) ++:
+    (if (minFLen == 16) new HDecode(aluFn) +: (xLen > 32).option(new H64Decode(aluFn)).toSeq ++: (fLen >= 64).option(new HDDecode(aluFn)).toSeq else Nil) ++:
+    (usingRoCC.option(new RoCCDecode(aluFn))) ++:
+    (if (xLen == 32) new I32Decode(aluFn) else new I64Decode(aluFn)) +:
+    (usingVM.option(new SVMDecode(aluFn))) ++:
+    (usingSupervisor.option(new SDecode(aluFn))) ++:
+    (usingHypervisor.option(new HypervisorDecode(aluFn))) ++:
+    ((usingHypervisor && (xLen == 64)).option(new Hypervisor64Decode(aluFn))) ++:
+    (usingDebug.option(new DebugDecode(aluFn))) ++:
+    (usingNMI.option(new NMIDecode(aluFn))) ++:
+    (usingConditionalZero.option(new ConditionalZeroDecode(aluFn))) ++:
+    Seq(new FenceIDecode(dcacheFlushOnFenceI, aluFn)) ++:
+    coreParams.haveCFlush.option(new CFlushDecode(dcacheCanSupportCFlushLine, aluFn)) ++:
+    rocketParams.haveCease.option(new CeaseDecode(aluFn)) ++:
+    Seq(new IDecode(aluFn))
   } flatMap(_.table)
 
   val ex_ctrl = Reg(new IntCtrlSigs)
@@ -370,7 +423,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val ctrl_stalld_w = Wire(Bool())
   val id_npc = (ibuf.io.pc.asSInt + ImmGen(IMM_UJ, id_inst(0))).asUInt
 
-  val csr = Module(new CSRFile(perfEvents, coreParams.customCSRs.decls, tile.roccCSRs.flatten, tile.rocketParams.beuAddr.isDefined))
+  val csr = Module(new SuperscalarCSRFile(perfEvents, coreParams.customCSRs.decls, roccCSRsFlatten, beuAddrIsDefined))
   val id_csr_en = id_ctrl.csr.isOneOf(CSR.S, CSR.C, CSR.W)
   val id_system_insn = id_ctrl.csr === CSR.I
   val id_csr_ren = id_ctrl.csr.isOneOf(CSR.S, CSR.C) && id_expanded_inst(0).rs1 === 0.U
@@ -590,7 +643,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     when (id_ctrl.mem_cmd === M_SFENCE && csr.io.status.v) {
       ex_ctrl.mem_cmd := M_HFENCEV
     }
-    if (tile.dcache.flushOnFenceI) {
+    if (dcacheFlushOnFenceI) {
       when (id_ctrl.fence_i) {
         ex_reg_mem_size := 0.U
       }
@@ -1013,7 +1066,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   sboard.clear(ll_wen, ll_waddr)
   def id_sboard_clear_bypass(r: UInt) = {
     // ll_waddr arrives late when D$ has ECC, so reshuffle the hazard check
-    if (!tileParams.dcache.get.dataECC.isDefined) ll_wen && ll_waddr === r
+    if (!dcacheDataECCIsDefined) ll_wen && ll_waddr === r
     else div.io.resp.fire && div.io.resp.bits.tag === r || dmem_resp_replay && dmem_resp_xpu && dmem_resp_waddr === r
   }
   val id_sboard_hazard = checkHazards(hazard_targets, rd => sboard.read(rd) && !id_sboard_clear_bypass(rd))
@@ -1074,11 +1127,11 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     id_ctrl.rocc && rocc_blocked || // reduce activity while RoCC is busy
     id_ctrl.div && (!(div.io.req.ready || (div.io.resp.valid && !wb_wxd)) || div.io.req.valid) || // reduce odds of replay
     !clock_en || // don't care
-    id_do_fence || // don't care 
-    csr.io.csr_stall || //don't care 
+    id_do_fence || // don't care
+    csr.io.csr_stall || //don't care
     id_reg_pause || // don't care
     io.traceStall // don't care
-  ctrl_stalld_w := ctrl_stalld 
+  ctrl_stalld_w := ctrl_stalld
   ctrl_killd := !ibuf.io.inst(0).valid || ibuf.io.inst(0).bits.replay || take_pc_mem_wb || ctrl_stalld || csr.io.interrupt
 
   val ctrl_stall_fp = id_ctrl.fp && id_stall_fpu

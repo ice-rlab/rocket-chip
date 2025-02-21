@@ -58,6 +58,15 @@ class EventSets(val eventSets: Seq[EventSet]) {
 }
 
 class SuperscalarEventSets(val eventSets: Seq[(Seq[EventSet], (UInt, UInt) => UInt)]) {
+  def maskEventSelector(eventSel: UInt): UInt = {
+    // allow full associativity between counters and event sets (for now?)
+    val setMask = (BigInt(1) << eventSetIdBits) - 1
+    val maskMask = ((BigInt(1) << (eventSets.map { case (sets, _) =>
+      sets(0).size
+    }).max) - 1) << maxEventSetIdBits
+    eventSel & (setMask | maskMask).U
+  }
+
   def evaluate(eventSel: UInt): UInt = {
     val (set, mask) = decode(eventSel)
     val sets = for ((sets, reducer) <- eventSets) yield {

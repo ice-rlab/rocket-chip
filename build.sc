@@ -158,6 +158,69 @@ trait RocketChipPublishModule
   override def publishVersion: T[String] = T("1.6-SNAPSHOT")
 }
 
+
+trait Unit extends Cross.Module2[String, String] {
+  val top: String = crossValue
+  val config: String = crossValue2
+
+  object generator extends Module {
+    def elaborate = T {
+      os.proc(
+        mill.util.Jvm.javaExe,
+        "-jar",
+        rocketchip(v.chiselCrossVersions.keys.head).assembly().path,
+        "--dir", T.dest.toString,
+        "--top", top,
+        config.split('_').flatMap(c => Seq("--config", c)),
+      ).call()
+      PathRef(T.dest)
+    }
+
+    def chiselAnno = T {
+      os.walk(elaborate().path).collectFirst { case p if p.last.endsWith("anno.json") => p }.map(PathRef(_)).get
+    }
+
+    def chirrtl = T {
+      os.walk(elaborate().path).collectFirst { case p if p.last.endsWith("fir") => p }.map(PathRef(_)).get
+    }
+  }
+
+  object mfccompiler extends Module {
+    def compile = T {
+      os.proc("firtool",
+        generator.chirrtl().path,
+        s"--annotation-file=${generator.chiselAnno().path}",
+        "--disable-annotation-unknown",
+        "-O=debug",
+        "--split-verilog",
+        "--preserve-values=named",
+        "--output-annotation-file=mfc.anno.json",
+        s"-o=${T.dest}"
+      ).call(T.dest)
+      PathRef(T.dest)
+    }
+
+    def rtls = T {
+      os.read(compile().path / "filelist.f").split("\n").map(str =>
+        try {
+          os.Path(str)
+        } catch {
+          case e: IllegalArgumentException if e.getMessage.contains("is not an absolute path") =>
+            compile().path / str.stripPrefix("./")
+        }
+      ).filter(p => p.ext == "v" || p.ext == "sv").map(PathRef(_)).toSeq
+    }
+  }
+}
+
+object unit extends Cross[Unit](
+  // RocketSuiteA
+  ("freechips.rocketchip.rocket.BareRocket", "freechips.rocketchip.system.DefaultConfig"),
+  ("freechips.rocketchip.rocket.TestSuperscalar", "freechips.rocketchip.system.DefaultConfig"),
+)
+
+
+
 // Tests
 trait Emulator extends Cross.Module2[String, String] {
   val top: String = crossValue
