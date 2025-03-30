@@ -8,6 +8,8 @@ import org.chipsalliance.cde.config._
 import freechips.rocketchip.rocket._
 import freechips.rocketchip.util._
 
+case object CoreKey extends Field[CoreParams]
+case object XLen extends Field[Int]
 case object MaxHartIdBits extends Field[Int]
 
 // These parameters can be varied per-core

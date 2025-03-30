@@ -213,8 +213,8 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
           ("jal", () => id_ctrl.jal),
           ("jalr", () => id_ctrl.jalr))
           ++ (if (!usingMulDiv) Seq() else Seq(
-            ("mul", () => if (pipelinedMul) id_ctrl.mul else id_ctrl.div && (id_ctrl.alu_fn & aluFn.FN_DIV) =/= aluFn.FN_DIV),
-            ("div", () => if (pipelinedMul) id_ctrl.div else id_ctrl.div && (id_ctrl.alu_fn & aluFn.FN_DIV) === aluFn.FN_DIV)))
+            ("mul", () => if (pipelinedMul) id_ctrl.mul else id_ctrl.div && (id_ctrl.alu_fn & FN_DIV) =/= FN_DIV),
+            ("div", () => if (pipelinedMul) id_ctrl.div else id_ctrl.div && (id_ctrl.alu_fn & FN_DIV) === FN_DIV)))
           ++ (if (!usingFPU) Seq() else Seq(
             ("fp load", () => id_ctrl.fp && io.fpu.dec.ldst && io.fpu.dec.wen),
             ("fp store", () => id_ctrl.fp && io.fpu.dec.ldst && !io.fpu.dec.wen),
@@ -300,24 +300,24 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
 
   val pipelinedMul = usingMulDiv && mulDivParams.mulUnroll == xLen
   val decode_table = {
-    (if (usingMulDiv) new MDecode(pipelinedMul, aluFn) +: (xLen > 32).option(new M64Decode(pipelinedMul, aluFn)).toSeq else Nil) ++:
-    (if (usingAtomics) new ADecode(aluFn) +: (xLen > 32).option(new A64Decode(aluFn)).toSeq else Nil) ++:
-    (if (fLen >= 32)    new FDecode(aluFn) +: (xLen > 32).option(new F64Decode(aluFn)).toSeq else Nil) ++:
-    (if (fLen >= 64)    new DDecode(aluFn) +: (xLen > 32).option(new D64Decode(aluFn)).toSeq else Nil) ++:
-    (if (minFLen == 16) new HDecode(aluFn) +: (xLen > 32).option(new H64Decode(aluFn)).toSeq ++: (fLen >= 64).option(new HDDecode(aluFn)).toSeq else Nil) ++:
-    (usingRoCC.option(new RoCCDecode(aluFn))) ++:
-    (if (xLen == 32) new I32Decode(aluFn) else new I64Decode(aluFn)) +:
-    (usingVM.option(new SVMDecode(aluFn))) ++:
-    (usingSupervisor.option(new SDecode(aluFn))) ++:
-    (usingHypervisor.option(new HypervisorDecode(aluFn))) ++:
-    ((usingHypervisor && (xLen == 64)).option(new Hypervisor64Decode(aluFn))) ++:
-    (usingDebug.option(new DebugDecode(aluFn))) ++:
-    (usingNMI.option(new NMIDecode(aluFn))) ++:
-    (usingConditionalZero.option(new ConditionalZeroDecode(aluFn))) ++:
-    Seq(new FenceIDecode(dcacheFlushOnFenceI, aluFn)) ++:
-    coreParams.haveCFlush.option(new CFlushDecode(dcacheCanSupportCFlushLine, aluFn)) ++:
-    rocketParams.haveCease.option(new CeaseDecode(aluFn)) ++:
-    Seq(new IDecode(aluFn))
+    (if (usingMulDiv) new MDecode(pipelinedMul) +: (xLen > 32).option(new M64Decode(pipelinedMul)).toSeq else Nil) ++:
+    (if (usingAtomics) new ADecode +: (xLen > 32).option(new A64Decode).toSeq else Nil) ++:
+    (if (fLen >= 32)    new FDecode +: (xLen > 32).option(new F64Decode).toSeq else Nil) ++:
+    (if (fLen >= 64)    new DDecode +: (xLen > 32).option(new D64Decode).toSeq else Nil) ++:
+    (if (minFLen == 16) new HDecode +: (xLen > 32).option(new H64Decode).toSeq ++: (fLen >= 64).option(new HDDecode).toSeq else Nil) ++:
+    (usingRoCC.option(new RoCCDecode)) ++:
+    (if (xLen == 32) new I32Decode else new I64Decode) +:
+    (usingVM.option(new SVMDecode)) ++:
+    (usingSupervisor.option(new SDecode)) ++:
+    (usingHypervisor.option(new HypervisorDecode)) ++:
+    ((usingHypervisor && (xLen == 64)).option(new Hypervisor64Decode)) ++:
+    (usingDebug.option(new DebugDecode)) ++:
+    (usingNMI.option(new NMIDecode)) ++:
+    (usingConditionalZero.option(new ConditionalZeroDecode)) ++:
+    Seq(new FenceIDecode(dcacheFlushOnFenceI)) ++:
+    coreParams.haveCFlush.option(new CFlushDecode(dcacheCanSupportCFlushLine)) ++:
+    rocketParams.haveCease.option(new CeaseDecode) ++:
+    Seq(new IDecode)
   } flatMap(_.table)
 
   val ex_ctrl = Reg(new IntCtrlSigs)
