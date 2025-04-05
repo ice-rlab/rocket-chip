@@ -17,7 +17,7 @@ import freechips.rocketchip.interrupts.{
 import freechips.rocketchip.tile.{TileParams, TilePRCIDomain, BaseTile, NMI, TraceBundle}
 import freechips.rocketchip.tilelink.{TLNode, TLBuffer, TLCacheCork, TLTempNode, TLFragmenter}
 import freechips.rocketchip.prci.{ClockCrossingType, ClockGroup, ResetCrossingType, ClockGroupNode, ClockDomain}
-import freechips.rocketchip.rocket.TracedInstruction
+import freechips.rocketchip.rocket.{TracedInstruction, TraceDoctor}
 import freechips.rocketchip.trace.TraceCoreInterface
 
 import scala.collection.immutable.SortedMap
@@ -176,6 +176,7 @@ trait DefaultHierarchicalElementContextType
   val tileResetVectorNodes: SortedMap[Int, BundleBridgeNode[UInt]]
   val traceCoreNodes: SortedMap[Int, BundleBridgeNode[TraceCoreInterface]]
   val traceNodes: SortedMap[Int, BundleBridgeNode[TraceBundle]]
+  val traceDoctorNodes: SortedMap[Int, BundleBridgeNode[TraceDoctor]]
 }
 
 /** This trait provides the tile attachment context for the root (outermost) subsystem */
@@ -246,4 +247,5 @@ trait HasHierarchicalElementsRootContext
 
   val traceCoreNodes: SortedMap[Int, BundleBridgeSink[TraceCoreInterface]] = (0 until nTotalTiles).map { i => (i, BundleBridgeSink[TraceCoreInterface]()) }.to(SortedMap)
   val traceNodes: SortedMap[Int, BundleBridgeSink[TraceBundle]] = (0 until nTotalTiles).map { i => (i, BundleBridgeSink[TraceBundle]()) }.to(SortedMap)
+  val traceDoctorNodes: SortedMap[Int, BundleBridgeSink[TraceDoctor]] = (0 until nTotalTiles).map { i => (i, BundleBridgeSink[TraceDoctor]()) }.to(SortedMap)
 }

@@ -224,7 +224,8 @@ class RocketTileModuleImp(outer: RocketTile) extends BaseTileModuleImp(outer)
 
   // Pass through various external constants and reports that were bundle-bridged into the tile
   outer.traceSourceNode.bundle <> core.io.trace
-  
+  // TraceDoctor export (traceStall is driven above, including the trace encoder stall)
+  outer.traceDoctorSourceNode.bundle <> core.io.traceDoctor
   outer.bpwatchSourceNode.bundle <> core.io.bpwatch
   core.io.hartid := outer.hartIdSinkNode.bundle
   require(core.io.hartid.getWidth >= outer.hartIdSinkNode.bundle.getWidth,
