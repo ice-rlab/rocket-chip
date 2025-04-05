@@ -55,9 +55,10 @@ trait CoreParams {
   val mtvecInit: Option[BigInt]
   val mtvecWritable: Boolean
   val traceHasWdata: Boolean
+  def traceDoctorWidth: Int = 0
   val xLen: Int
   val pgLevels: Int
-  def traceCustom: Option[Data] = None
+  def traceCustom: Option[Data] = Some(new RocketTraceBundle)
   def customIsaExt: Option[String] = None
   def customCSRs(implicit p: Parameters): CustomCSRs = new CustomCSRs
 
@@ -80,6 +81,13 @@ trait CoreParams {
 
   def useBitmanip = useZba && useZbb && useZbs
 }
+
+
+// Custom Trace events for RocketCore
+class RocketTraceBundle extends Bundle {
+  val ctrl_killd = Bool()
+}
+
 
 trait HasCoreParameters extends HasTileParameters {
   implicit val p: Parameters
@@ -120,6 +128,7 @@ trait HasCoreParameters extends HasTileParameters {
   val mtvecInit = coreParams.mtvecInit
   val mtvecWritable = coreParams.mtvecWritable
   val customIsaExt = coreParams.customIsaExt
+  
   val traceHasWdata = coreParams.traceHasWdata
 
   def vLen = coreParams.vLen
@@ -163,6 +172,7 @@ abstract class CoreModule(implicit val p: Parameters) extends Module
 
 abstract class CoreBundle(implicit val p: Parameters) extends ParameterizedBundle()(p)
   with HasCoreParameters
+
 
 // This is a raw commit trace from the core, not the TraceCoreInterface
 class TraceBundle(implicit val p: Parameters) extends Bundle with HasCoreParameters {
