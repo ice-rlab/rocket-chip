@@ -58,7 +58,7 @@ trait CoreParams {
   def traceDoctorWidth: Int = 0
   val xLen: Int
   val pgLevels: Int
-  def traceCustom: Option[Data] = Some(new RocketTraceBundle)
+  def traceCustom: Option[Data] = None
   def customIsaExt: Option[String] = None
   def customCSRs(implicit p: Parameters): CustomCSRs = new CustomCSRs
 
@@ -124,7 +124,7 @@ trait HasCoreParameters extends HasTileParameters {
   val nBreakpoints = coreParams.nBreakpoints
   val nPMPs = coreParams.nPMPs
   val pmpGranularity = coreParams.pmpGranularity
-  val nPerfCounters = coreParams.nPerfCounters
+  val nPerfCounters = 29
   val mtvecInit = coreParams.mtvecInit
   val mtvecWritable = coreParams.mtvecWritable
   val customIsaExt = coreParams.customIsaExt
