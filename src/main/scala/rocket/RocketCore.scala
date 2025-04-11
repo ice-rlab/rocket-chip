@@ -1115,10 +1115,6 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   ctrl_killd := !ibuf.io.inst(0).valid || ibuf.io.inst(0).bits.replay || take_pc_mem_wb || ctrl_stalld || csr.io.interrupt
 
 
-  // Hook up ctrl_killd to RocketTraceBundle
-  io.trace.custom.get.asInstanceOf[RocketTraceBundle].ctrl_killd := !ibuf.io.inst(0).valid || ibuf.io.inst(0).bits.replay || take_pc_mem_wb || ctrl_stalld || csr.io.interrupt
-
-
   val ctrl_stall_fp = id_ctrl.fp && id_stall_fpu
   val ctrl_stall_div = (id_ctrl.div && (!(div.io.req.ready || (div.io.resp.valid && !wb_wxd)) || div.io.req.valid) )
 
@@ -1296,6 +1292,8 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
          traceFlags.pad(64),
          traceAddresses
        ).reverse).pad(io.traceDoctor.traceWidth).asBools
+  }else{
+    io.traceDoctor.valid := false.B
   }
 
   if (enableCommitLog) {
