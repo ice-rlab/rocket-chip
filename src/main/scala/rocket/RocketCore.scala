@@ -290,6 +290,10 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     Seq(new FenceIDecode(dcacheFlushOnFenceI)) ++:
     coreParams.haveCFlush.option(new CFlushDecode(dcacheCanSupportCFlushLine)) ++:
     rocketParams.haveCease.option(new CeaseDecode) ++:
+    usingVector.option(new VCFGDecode) ++:
+    (if (coreParams.useZba) new ZbaDecode +: (xLen > 32).option(new Zba64Decode).toSeq else Nil) ++:
+    (if (coreParams.useZbb) Seq(new ZbbDecode, if (xLen == 32) new Zbb32Decode else new Zbb64Decode) else Nil) ++:
+    coreParams.useZbs.option(new ZbsDecode) ++:
     Seq(new IDecode)
   } flatMap(_.table)
 
