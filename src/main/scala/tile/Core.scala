@@ -124,11 +124,11 @@ trait HasCoreParameters extends HasTileParameters {
   val nBreakpoints = coreParams.nBreakpoints
   val nPMPs = coreParams.nPMPs
   val pmpGranularity = coreParams.pmpGranularity
-  val nPerfCounters = 29
+  val nPerfCounters = coreParams.nPerfCounters
   val mtvecInit = coreParams.mtvecInit
   val mtvecWritable = coreParams.mtvecWritable
   val customIsaExt = coreParams.customIsaExt
-  
+
   val traceHasWdata = coreParams.traceHasWdata
 
   def vLen = coreParams.vLen
