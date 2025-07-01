@@ -81,6 +81,7 @@ case class RocketCoreParams(
   override val customIsaExt = Option.when(haveCease)("xrocket") // CEASE instruction
   override def minFLen: Int = fpu.map(_.minFLen).getOrElse(32)
   override def customCSRs(implicit p: Parameters) = new RocketCustomCSRs
+  override def traceDoctorWidth: Int = setTraceDoctorWidth
 }
 
 trait HasRocketCoreParameters extends HasCoreParameters {
@@ -144,6 +145,7 @@ trait HasRocketCoreIO extends HasRocketCoreParameters {
     val fpu = Flipped(new FPUCoreIO())
     val rocc = Flipped(new RoCCCoreIO(nTotalRoCCCSRs))
     val trace = Output(new TraceBundle)
+    val traceDoctor = Output(new TraceDoctor(coreParams.traceDoctorWidth))
     val bpwatch = Output(Vec(coreParams.nBreakpoints, new BPWatch(coreParams.retireWidth)))
     val cease = Output(Bool())
     val wfi = Output(Bool())
@@ -1117,6 +1119,7 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   ctrl_stalld_w := ctrl_stalld
   ctrl_killd := !ibuf.io.inst(0).valid || ibuf.io.inst(0).bits.replay || take_pc_mem_wb || ctrl_stalld || csr.io.interrupt
 
+
   val ctrl_stall_fp = id_ctrl.fp && id_stall_fpu
   val ctrl_stall_div = (id_ctrl.div && (!(div.io.req.ready || (div.io.resp.valid && !wb_wxd)) || div.io.req.valid) )
 
@@ -1277,6 +1280,26 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   coreMonitorBundle.inst := csr.io.trace(0).insn
   coreMonitorBundle.excpt := csr.io.trace(0).exception
   coreMonitorBundle.priv_mode := csr.io.trace(0).priv
+
+  if (io.traceDoctor.traceWidth >= (64 + 64 + (retireWidth * 64))) {
+       val traceValids = for (i <- 0 until retireWidth) yield {
+         csr.io.trace(i).valid
+       }
+       val traceTimestamp: UInt = csr.io.time(63, 0)
+       val traceFlags: UInt = Cat(traceValids.reverse)(retireWidth - 1, 0)
+       val traceAddresses: UInt = Cat((for (i <- 0 until retireWidth) yield {
+         csr.io.trace(0).iaddr(vaddrBitsExtended-1, 0).sextTo(xLen).pad(64)
+       }).reverse)
+
+      io.traceDoctor.valid := traceValids.reduce(_||_)
+       io.traceDoctor.bits := Cat(Seq(
+         traceTimestamp.pad(64),
+         traceFlags.pad(64),
+         traceAddresses
+       ).reverse).pad(io.traceDoctor.traceWidth).asBools
+  }else{
+    io.traceDoctor.valid := false.B
+  }
 
   if (enableCommitLog) {
     val t = csr.io.trace(0)

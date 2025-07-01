@@ -12,6 +12,7 @@ import freechips.rocketchip.devices.debug.TLDebugModule
 import freechips.rocketchip.diplomacy.{DisableMonitors, FlipRendering}
 import freechips.rocketchip.interrupts.{IntXbar, IntSinkNode, IntSinkPortSimple, IntSyncAsyncCrossingSink}
 import freechips.rocketchip.tile.{MaxHartIdBits, BaseTile, InstantiableTileParams, TileParams, TilePRCIDomain, TraceBundle, PriorityMuxHartIdFromSeq}
+import freechips.rocketchip.rocket.{TraceDoctor}
 import freechips.rocketchip.tilelink.TLWidthWidget
 import freechips.rocketchip.prci.{ClockGroup, BundleBridgeBlockDuringReset, NoCrossing, SynchronousCrossing, CreditedCrossing, RationalCrossing, AsynchronousCrossing}
 import freechips.rocketchip.rocket.TracedInstruction
@@ -297,9 +298,15 @@ trait CanAttachTile {
     val traceCrossingNode = BundleBridgeBlockDuringReset[TraceBundle](
       resetCrossingType = crossingParams.resetCrossingType)
     context.traceNodes(domain.element.tileId) := traceCrossingNode := domain.element.traceNode
+   
     val traceCoreCrossingNode = BundleBridgeBlockDuringReset[TraceCoreInterface](
       resetCrossingType = crossingParams.resetCrossingType)
     context.traceCoreNodes(domain.element.tileId) :*= traceCoreCrossingNode := domain.element.traceCoreNode
+    
+    val traceDoctorCrossingNode = BundleBridgeBlockDuringReset[TraceDoctor](
+      resetCrossingType = crossingParams.resetCrossingType)
+    context.traceDoctorNodes(domain.element.tileId) := traceDoctorCrossingNode := domain.element.traceDoctorNode
+
   }
 }
 
