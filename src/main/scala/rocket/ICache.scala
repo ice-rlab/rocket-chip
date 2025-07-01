@@ -239,7 +239,10 @@ class ICacheBundle(val outer: ICache) extends CoreBundle()(outer.p) {
   val errors = new ICacheErrors
 
   /** for performance counting. */
-  val perf = Output(new ICachePerfEvents())
+  val perf = Output(new Bundle {
+    val acquire = Bool()
+    val refill_valid = Bool() 
+  })
 
   /** enable clock. */
   val clock_enabled = Input(Bool())
@@ -831,6 +834,7 @@ class ICacheModule(outer: ICache) extends LazyModuleImp(outer)
   when (refill_done) { refill_valid := false.B}
 
   io.perf.acquire := refill_fire
+  io.perf.refill_valid := refill_valid
   // don't gate I$ clock since there are outstanding transcations.
   io.keep_clock_enabled :=
     tl_in.map(tl => tl.a.valid || tl.d.valid || s1_slaveValid || s2_slaveValid || s3_slaveValid).getOrElse(false.B) || // ITIM

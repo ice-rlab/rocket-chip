@@ -58,7 +58,7 @@ case class RocketCoreParams(
   debugROB: Option[DebugROBParams] = None, // if size < 1, SW ROB, else HW ROB
   haveCease: Boolean = true, // non-standard CEASE instruction
   haveSimTimeout: Boolean = true, // add plusarg for simulation timeout
-  vector: Option[RocketCoreVectorParams] = None
+  vector: Option[RocketCoreVectorParams] = None,
 ) extends CoreParams {
   val lgPauseCycles = 5
   val haveFSDirty = false
@@ -260,14 +260,13 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
       ("Data hazard mem", () => data_hazard_mem),
       ("Data hazard wb", () => data_hazard_wb),
       ("IBuf ready", () => ibuf.io.inst(0).ready && ibuf.io.inst(0).valid),
-      ("Recovering", () => recovering)
     )),
     new EventSet((mask, hits) => (mask & hits).orR, Seq(
         ("uops issued", () => !ctrl_killd),
-        ("Fetch Bubbles", () => recovering || ibuf.io.inst(0).valid),
-        ("Recovering", () => recovering),
-        ("Fp stall", () => ctrl_stall_fp),
-        ("Div stall", () => ctrl_stall_div)
+        ("fetch bubbles", () => !recovering && (!ibuf.io.inst(0).valid && ibuf.io.inst(0).ready) ),
+        ("recovery bubbles", () => recovering),
+        ("fp stall", () => ctrl_stall_fp),
+        ("div stall", () => ctrl_stall_div)
     ))
   ))
 
@@ -414,7 +413,7 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     v_decode.io.inst := id_inst(0)
     v_decode.io.vconfig := csr.io.vector.get.vconfig
     when (v_decode.io.legal) {
-      id_ctrl.legal := !csr.io.vector.get.vconfig.vtype.vill
+      id_ctrl .legal := !csr.io.vector.get.vconfig.vtype.vill
       id_ctrl.fp := v_decode.io.fp
       id_ctrl.rocc := false.B
       id_ctrl.branch := false.B
@@ -691,7 +690,9 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val tk_pc_mem =  mem_reg_valid && !mem_reg_xcpt && (mem_misprediction || mem_reg_sfence)
 
   take_pc_mem := tk_pc_mem
-  recovering :=  tk_pc_mem || (recovering && !mem_pc_valid)
+
+  // recovering :=  (mem_reg_flush_pipe || tk_pc_mem) || (recovering && !mem_pc_valid)
+  recovering :=  (tk_pc_mem) || (recovering && !mem_pc_valid)
 
   mem_reg_valid := !ctrl_killx
   mem_reg_replay := !take_pc_mem_wb && replay_ex
@@ -979,6 +980,11 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   io.rocc.csrs <> csr.io.roccCSRs
   io.trace.time := csr.io.time
   io.trace.insns := csr.io.trace
+  
+
+  
+
+
   if (rocketParams.debugROB.isDefined) {
     val sz = rocketParams.debugROB.get.size
     if (sz < 1) { // use unsynthesizable ROB
@@ -1313,6 +1319,74 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
          coreMonitorBundle.inst, coreMonitorBundle.inst)
     }
   }
+
+
+
+  val count = RegInit(0.U(30.W))
+  
+  count := count + 1.U
+  val rocketTraceBundle = io.trace.custom.get.asInstanceOf[RocketTraceBundle]
+  rocketTraceBundle.top_bit := 1.U
+  rocketTraceBundle.top_second := 1.U
+  rocketTraceBundle.recovering := recovering
+  rocketTraceBundle.uops_issued := !ctrl_killd
+  rocketTraceBundle.fetch_bubbles := !recovering && !ibuf.io.inst(0).valid
+  rocketTraceBundle.fp_stall := ctrl_stall_fp
+  rocketTraceBundle.div_stall := ctrl_stall_div
+  rocketTraceBundle.ibuf_valid := ibuf.io.inst(0).valid
+  rocketTraceBundle.ibuf_ready := ibuf.io.inst(0).ready
+  rocketTraceBundle.data_hazard_wb := data_hazard_wb
+  rocketTraceBundle.data_hazard_mem := data_hazard_mem
+  rocketTraceBundle.data_hazard_ex := data_hazard_ex
+  rocketTraceBundle.id_mem_hazard := id_mem_hazard
+  rocketTraceBundle.id_wb_hazard := id_wb_hazard
+  rocketTraceBundle.id_ex_hazard := id_ex_hazard
+  rocketTraceBundle.ctrl_stalld_w := ctrl_stalld_w
+  rocketTraceBundle.take_pc_mem_wb := take_pc_mem_wb
+  rocketTraceBundle.take_pc := take_pc
+  rocketTraceBundle.wb_reg_valid := wb_reg_valid
+  rocketTraceBundle.mem_reg_valid := mem_reg_valid
+  rocketTraceBundle.ex_reg_valid := ex_reg_valid
+  rocketTraceBundle.wb_pc_valid := wb_pc_valid
+  rocketTraceBundle.mem_pc_valid := mem_pc_valid
+  rocketTraceBundle.ex_pc_valid := ex_pc_valid
+  rocketTraceBundle.icache_miss := io.imem.perf.acquire
+  rocketTraceBundle.dcache_miss := io.dmem.perf.acquire
+  rocketTraceBundle.dcache_release := io.dmem.perf.release
+  rocketTraceBundle.itlb_miss := io.imem.perf.tlbMiss
+  rocketTraceBundle.dtlb_miss := io.dmem.perf.tlbMiss
+  rocketTraceBundle.flush := wb_reg_flush_pipe
+  rocketTraceBundle.replay := replay_wb
+  rocketTraceBundle.control_flow_mispr := take_pc_mem && mem_misprediction && mem_cfi && !mem_direction_misprediction && !icache_blocked
+  rocketTraceBundle.branch_mispr := take_pc_mem && mem_direction_misprediction
+  rocketTraceBundle.dcache_blocked := id_ctrl.mem && dcache_blocked
+  rocketTraceBundle.icache_blocked := icache_blocked
+  rocketTraceBundle.csr_interlock := id_ex_hazard && ex_ctrl.csr =/= CSR.N || id_mem_hazard && mem_ctrl.csr =/= CSR.N || id_wb_hazard && wb_ctrl.csr =/= CSR.N
+  rocketTraceBundle.id_sboard_hazard := id_sboard_hazard
+  rocketTraceBundle.id_vconfig_hazard := id_vconfig_hazard
+  rocketTraceBundle.rocc_busy := id_ctrl.rocc && rocc_blocked
+  rocketTraceBundle.id_do_fence := id_do_fence
+  rocketTraceBundle.load_use := id_ex_hazard && ex_ctrl.mem || id_mem_hazard && mem_ctrl.mem || id_wb_hazard && wb_ctrl.mem
+  rocketTraceBundle.csr_stall := csr.io.csr_stall
+  rocketTraceBundle.id_reg_pause := id_reg_pause
+  rocketTraceBundle.retire := wb_valid
+  rocketTraceBundle.traceStall := io.traceStall
+  rocketTraceBundle.dmem_ready := io.dmem.req.ready
+  rocketTraceBundle.branch_instr := id_ctrl.branch
+  rocketTraceBundle.jal := id_ctrl.jal
+  rocketTraceBundle.jalr := id_ctrl.jalr
+  rocketTraceBundle.load := id_ctrl.mem && id_ctrl.mem_cmd === M_XRD && !id_ctrl.fp
+  rocketTraceBundle.store := id_ctrl.mem && id_ctrl.mem_cmd === M_XWR && !id_ctrl.fp
+  rocketTraceBundle.amo := usingAtomics.B && id_ctrl.mem && (isAMO(id_ctrl.mem_cmd) || id_ctrl.mem_cmd.isOneOf(M_XLR, M_XSC))
+  rocketTraceBundle.system := id_ctrl.csr =/= CSR.N
+  rocketTraceBundle.mul := 
+    Mux(pipelinedMul.B, id_ctrl.mul, id_ctrl.div && ((id_ctrl.alu_fn & FN_DIV) =/= FN_DIV))
+  rocketTraceBundle.div := 
+    Mux(pipelinedMul.B, id_ctrl.div, id_ctrl.div && ((id_ctrl.alu_fn & FN_DIV) === FN_DIV))
+  
+  
+  rocketTraceBundle.test_data := count(10,0)
+  rocketTraceBundle.bottom_bit := 1.U
 
   // CoreMonitorBundle for late latency writes
   val xrfWriteBundle = Wire(new CoreMonitorBundle(xLen, fLen))
