@@ -6,6 +6,9 @@
 `ifndef MODEL
  `define MODEL TestHarness
 `endif
+`ifndef DUMP_SCOPE
+ `define DUMP_SCOPE testHarness
+`endif
 
 module TestDriver;
 
@@ -74,14 +77,14 @@ module TestDriver;
     if ($value$plusargs("vcdfile=%s", vcdfile))
     begin
       $dumpfile(vcdfile);
-      $dumpvars(0, testHarness);
+      $dumpvars(0, `DUMP_SCOPE);
     end
 
 `ifdef FSDB
 `define VCDPLUSON $fsdbDumpon;
 `define VCDPLUSCLOSE $fsdbDumpoff;
 `elsif VCS
-`define VCDPLUSON $vcdpluson(0); $vcdplusmemon(0);
+`define VCDPLUSON $vcdpluson(0, `DUMP_SCOPE); $vcdplusmemon(0, `DUMP_SCOPE);
 `define VCDPLUSCLOSE $vcdplusclose; $dumpoff;
 `else
 `define VCDPLUSON $dumpon;
