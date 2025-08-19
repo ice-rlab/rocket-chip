@@ -34,6 +34,7 @@ case object COH  extends TLBusWrapperLocation("coh")
 case class CSBUS(clusterId: Int) extends TLBusWrapperLocation(s"csbus$clusterId")
 case class CMBUS(clusterId: Int) extends TLBusWrapperLocation(s"cmbus$clusterId")
 case class CCBUS(clusterId: Int) extends TLBusWrapperLocation(s"ccbus$clusterId")
+case class CLBUS(clusterId: Int) extends TLBusWrapperLocation(s"clbus$clusterId")
 case class CCOH (clusterId: Int) extends TLBusWrapperLocation(s"ccoh$clusterId")
 
 /** Parameterizes the subsystem in terms of optional clock-crossings

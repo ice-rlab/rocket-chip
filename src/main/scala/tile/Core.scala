@@ -118,6 +118,8 @@ trait CoreParams {
   val traceHasWdata: Boolean
   /* tracing for TMA testing*/
   // val enableDetailedTrace: Boolean
+
+  val nLBREntries : Int = 0
   
   val xLen: Int
   val pgLevels: Int
@@ -143,7 +145,6 @@ trait CoreParams {
   def vMemDataBits: Int = 0
 
   def useBitmanip = useZba && useZbb && useZbs
-
 }
 
 trait HasCoreParameters extends HasTileParameters {
@@ -182,6 +183,7 @@ trait HasCoreParameters extends HasTileParameters {
   val nPMPs = coreParams.nPMPs
   val pmpGranularity = coreParams.pmpGranularity
   val nPerfCounters = coreParams.nPerfCounters
+  val nLBREntries = coreParams.nLBREntries
   val mtvecInit = coreParams.mtvecInit
   val mtvecWritable = coreParams.mtvecWritable
   val customIsaExt = coreParams.customIsaExt
