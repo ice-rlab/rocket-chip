@@ -68,3 +68,74 @@ case class WideCounter(width: Int, inc: UInt = 1.U, reset: Boolean = true, inhib
     if (isWide) large := x >> smallWidth
   }
 }
+
+
+// a counter that clock gates most of its MSBs using the LSB carry-out
+case class WideCounterOverflow(width: Int, inc: UInt = 1.U, reset: Boolean = true, inhibit: Bool = false.B, clearOverflow: Bool = false.B) {
+  private val isWide = width > (2 * inc.getWidth)
+  private val smallWidth = if (isWide) inc.getWidth max log2Up(width) else width
+  private val small = if (reset) RegInit(0.U(smallWidth.W)) else Reg(UInt(smallWidth.W))
+  private val nextSmall = small +& inc
+  when (!inhibit) {
+    small := nextSmall
+  }
+
+  // MSBs of counter
+  private val large = if (isWide) {
+    if (reset)
+      RegInit(0.U((width - smallWidth).W))
+    else
+      Reg(UInt((width - smallWidth).W))
+  } else null
+  private val largeInc = if (isWide) Wire(UInt(1.W)) else null
+  private val nextLarge = if (isWide) {
+    large +& largeInc
+  } else null
+  if (isWide) {
+    when (nextSmall(smallWidth)) {
+      largeInc := 1.U
+    } .otherwise {
+      largeInc := 0.U
+    }
+
+    when (!inhibit) {
+      large := nextLarge
+    }
+  }
+
+
+  // overflow bit from increment
+  private val inner_overflow = if (isWide) {
+    nextLarge(width - smallWidth)
+  } else {
+    nextSmall(smallWidth)
+  }
+
+  // clearable overflow signal
+  val clearOverflowW = Wire(Bool())
+  val clearedOverflow = Wire(Bool())
+  val overflow =
+    if (reset)
+      RegInit(false.B)
+    else
+      Reg(Bool())
+  clearOverflowW := clearOverflow
+  clearedOverflow := overflow & !clearOverflowW
+  overflow := inner_overflow | (overflow & !clearOverflow);
+
+  val value = if (isWide) Cat(large, small) else small
+  lazy val carryOut = {
+    val lo = (small ^ nextSmall) >> 1
+    if (!isWide)
+      lo
+    else {
+      val hi = Mux(nextSmall(smallWidth), large ^ (large +& 1.U), 0.U) >> 1
+      Cat(hi, lo)
+    }
+  }
+
+  def := (x: UInt) = {
+    small := x
+    if (isWide) large := x >> smallWidth
+  }
+}

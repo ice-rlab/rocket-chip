@@ -212,7 +212,32 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
       ("D$ release", () => io.dmem.perf.release),
       ("ITLB miss", () => io.imem.perf.tlbMiss),
       ("DTLB miss", () => io.dmem.perf.tlbMiss),
-      ("L2 TLB miss", () => io.ptw.perf.l2miss)))))
+      ("L2 TLB miss", () => io.ptw.perf.l2miss))),
+    new EventSet((mask, hits) => (mask & hits).orR, Seq(
+      ("Ex PC Valid", () => ex_pc_valid),
+      ("Mem PC Valid", () => mem_pc_valid),
+      ("WB PC Valid", () => wb_pc_valid),
+      ("Ex Reg Valid", () => ex_reg_valid),
+      ("Mem Reg Valid", () => mem_reg_valid),
+      ("WB Reg Valid", () => wb_reg_valid),
+      ("IBuf valid", () => ibuf.io.inst(0).valid),
+      ("IBuf cache-block", () => !ibuf.io.inst(0).valid && icache_blocked),
+      ("ID stall", () => ctrl_stalld_w && !take_pc_mem_wb),
+      ("Ctrl dependency", () => id_ex_hazard),
+      ("Data dependency", () => id_mem_hazard || id_wb_hazard),
+      ("Stall due to mispr", () => take_pc_mem_wb),
+      ("Data hazard ex", () => data_hazard_ex),
+      ("Data hazard mem", () => data_hazard_mem),
+      ("Data hazard wb", () => data_hazard_wb),
+      ("IBuf ready", () => ibuf.io.inst(0).ready && ibuf.io.inst(0).valid),
+      ("Recovering", () => recovering)
+    )),
+    new EventSet((mask, hits) => (mask & hits).orR, Seq(
+        ("UopsIssued", () => !ctrl_killd),
+        ("FetchBubbles", () => !recovering && (!ibuf.io.inst(0).valid && ibuf.io.inst(0).ready)),
+        ("Recovering", () => recovering)
+    ))
+  ))
 
   val pipelinedMul = usingMulDiv && mulDivParams.mulUnroll == xLen
   val decode_table = {
@@ -336,6 +361,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val rf = new RegFile(regAddrMask, xLen)
   val id_rs = id_raddr.map(rf.read _)
   val ctrl_killd = Wire(Bool())
+  val ctrl_stalld_w = Wire(Bool())
   val id_npc = (ibuf.io.pc.asSInt + ImmGen(IMM_UJ, id_inst(0))).asUInt
 
   val csr = Module(new CSRFile(perfEvents, coreParams.customCSRs.decls, tile.roccCSRs.flatten, tile.rocketParams.beuAddr.isDefined))
@@ -345,6 +371,10 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val id_csr = Mux(id_system_insn && id_ctrl.mem, CSR.N, Mux(id_csr_ren, CSR.R, id_ctrl.csr))
   val id_csr_flush = id_system_insn || (id_csr_en && !id_csr_ren && csr.io.decode(0).write_flush)
   val id_set_vconfig = Seq(Instructions.VSETVLI, Instructions.VSETIVLI, Instructions.VSETVL).map(_ === id_inst(0)).orR && usingVector.B
+
+  // Additional state for for TMA
+  val recovering = Reg(Bool())
+  val last_pc_valid = Reg(Bool())
 
   id_ctrl.vec := false.B
   if (usingVector) {
@@ -626,7 +656,11 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val mem_cfi_taken = (mem_ctrl.branch && mem_br_taken) || mem_ctrl.jalr || mem_ctrl.jal
   val mem_direction_misprediction = mem_ctrl.branch && mem_br_taken =/= (usingBTB.B && mem_reg_btb_resp.taken)
   val mem_misprediction = if (usingBTB) mem_wrong_npc else mem_cfi_taken
-  take_pc_mem := mem_reg_valid && !mem_reg_xcpt && (mem_misprediction || mem_reg_sfence)
+  val tk_pc_mem =  mem_reg_valid && !mem_reg_xcpt && (mem_misprediction || mem_reg_sfence)
+
+  take_pc_mem := tk_pc_mem
+  last_pc_valid := mem_pc_valid
+  recovering :=  tk_pc_mem || (recovering && !last_pc_valid)
 
   mem_reg_valid := !ctrl_killx
   mem_reg_replay := !take_pc_mem_wb && replay_ex
@@ -1043,7 +1077,12 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     csr.io.csr_stall ||
     id_reg_pause ||
     io.traceStall
+
   ctrl_killd := !ibuf.io.inst(0).valid || ibuf.io.inst(0).bits.replay || take_pc_mem_wb || ctrl_stalld || csr.io.interrupt
+  ctrl_stalld_w := ctrl_stalld
+
+  val ctrl_stall_fp = id_ctrl.fp && id_stall_fpu
+  val ctrl_stall_div = (id_ctrl.div && (!(div.io.req.ready || (div.io.resp.valid && !wb_wxd)) || div.io.req.valid) )
 
   io.imem.req.valid := take_pc
   io.imem.req.bits.speculative := !take_pc_wb
@@ -1245,6 +1284,79 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     }
   }
 
+
+
+
+
+  // Custom Trace bundle
+  val count = RegInit(0.U(30.W))
+  
+  count := count + 1.U
+  val rocketTraceBundle = io.trace.custom.get.asInstanceOf[RocketTraceBundle]
+  rocketTraceBundle.top_bit := 1.U
+  rocketTraceBundle.top_second := 1.U
+  rocketTraceBundle.recovering := recovering
+  rocketTraceBundle.uops_issued := !ctrl_killd
+  rocketTraceBundle.fetch_bubbles := !recovering && (!ibuf.io.inst(0).valid && ibuf.io.inst(0).ready)
+  rocketTraceBundle.fp_stall := ctrl_stall_fp
+  rocketTraceBundle.div_stall := ctrl_stall_div
+  rocketTraceBundle.ibuf_valid := ibuf.io.inst(0).valid
+  rocketTraceBundle.ibuf_ready := ibuf.io.inst(0).ready
+  rocketTraceBundle.data_hazard_wb := data_hazard_wb
+  rocketTraceBundle.data_hazard_mem := data_hazard_mem
+  rocketTraceBundle.data_hazard_ex := data_hazard_ex
+  rocketTraceBundle.id_mem_hazard := id_mem_hazard
+  rocketTraceBundle.id_wb_hazard := id_wb_hazard
+  rocketTraceBundle.id_ex_hazard := id_ex_hazard
+  rocketTraceBundle.ctrl_stalld_w := ctrl_stalld_w
+  rocketTraceBundle.take_pc_mem_wb := take_pc_mem_wb
+  rocketTraceBundle.take_pc := take_pc
+  rocketTraceBundle.wb_reg_valid := wb_reg_valid
+  rocketTraceBundle.mem_reg_valid := mem_reg_valid
+  rocketTraceBundle.ex_reg_valid := ex_reg_valid
+  rocketTraceBundle.wb_pc_valid := wb_pc_valid
+  rocketTraceBundle.mem_pc_valid := mem_pc_valid
+  rocketTraceBundle.ex_pc_valid := ex_pc_valid
+  rocketTraceBundle.icache_miss := io.imem.perf.acquire
+  rocketTraceBundle.dcache_miss := io.dmem.perf.acquire
+  rocketTraceBundle.dcache_release := io.dmem.perf.release
+  rocketTraceBundle.itlb_miss := io.imem.perf.tlbMiss
+  rocketTraceBundle.dtlb_miss := io.dmem.perf.tlbMiss
+  rocketTraceBundle.flush := wb_reg_flush_pipe
+  rocketTraceBundle.replay := replay_wb
+  rocketTraceBundle.control_flow_mispr := take_pc_mem && mem_misprediction && mem_cfi && !mem_direction_misprediction && !icache_blocked
+  rocketTraceBundle.branch_mispr := take_pc_mem && mem_direction_misprediction
+  rocketTraceBundle.dcache_blocked := id_ctrl.mem && dcache_blocked
+  rocketTraceBundle.icache_blocked := icache_blocked
+  rocketTraceBundle.csr_interlock := id_ex_hazard && ex_ctrl.csr =/= CSR.N || id_mem_hazard && mem_ctrl.csr =/= CSR.N || id_wb_hazard && wb_ctrl.csr =/= CSR.N
+  rocketTraceBundle.id_sboard_hazard := id_sboard_hazard
+  rocketTraceBundle.id_vconfig_hazard := id_vconfig_hazard
+  rocketTraceBundle.rocc_busy := id_ctrl.rocc && rocc_blocked
+  rocketTraceBundle.id_do_fence := id_do_fence
+  rocketTraceBundle.load_use := id_ex_hazard && ex_ctrl.mem || id_mem_hazard && mem_ctrl.mem || id_wb_hazard && wb_ctrl.mem
+  rocketTraceBundle.csr_stall := csr.io.csr_stall
+  rocketTraceBundle.id_reg_pause := id_reg_pause
+  rocketTraceBundle.retire := wb_valid
+  rocketTraceBundle.traceStall := io.traceStall
+  rocketTraceBundle.dmem_ready := io.dmem.req.ready
+  rocketTraceBundle.branch_instr := id_ctrl.branch
+  rocketTraceBundle.jal := id_ctrl.jal
+  rocketTraceBundle.jalr := id_ctrl.jalr
+  rocketTraceBundle.load := id_ctrl.mem && id_ctrl.mem_cmd === M_XRD && !id_ctrl.fp
+  rocketTraceBundle.store := id_ctrl.mem && id_ctrl.mem_cmd === M_XWR && !id_ctrl.fp
+  rocketTraceBundle.amo := usingAtomics.B && id_ctrl.mem && (isAMO(id_ctrl.mem_cmd) || id_ctrl.mem_cmd.isOneOf(M_XLR, M_XSC))
+  rocketTraceBundle.system := id_ctrl.csr =/= CSR.N
+  rocketTraceBundle.mul := 
+    Mux(pipelinedMul.B, id_ctrl.mul, id_ctrl.div && ((id_ctrl.alu_fn & FN_DIV) =/= FN_DIV))
+  rocketTraceBundle.div := 
+    Mux(pipelinedMul.B, id_ctrl.div, id_ctrl.div && ((id_ctrl.alu_fn & FN_DIV) === FN_DIV))
+  
+  
+  rocketTraceBundle.test_data := count(10,0)
+  rocketTraceBundle.bottom_bit := 1.U
+
+
+
   // CoreMonitorBundle for late latency writes
   val xrfWriteBundle = Wire(new CoreMonitorBundle(xLen, fLen))
 
@@ -1313,7 +1425,23 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
       when (ens) { _r := _next }
     }
   }
+
+
+override def toString: String =
+  s"""RocketCore(
+     |  hartid=${io.hartid}
+     |  vaddrBits=$vaddrBits
+     |  xLen=$xLen
+     |  fLen=$fLen
+     |  usingCompressed=$usingCompressed
+     |  usingFPU=$usingFPU
+     |  usingVector=$usingVector
+     |  enableCommitLog=$enableCommitLog
+     |  nPerfCounters=${rocketParams.nPerfCounters}
+     |)""".stripMargin
 }
+
+
 
 class RegFile(n: Int, w: Int, zero: Boolean = false) {
   val rf = Mem(n, UInt(w.W))

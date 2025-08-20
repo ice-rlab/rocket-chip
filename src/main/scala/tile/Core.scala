@@ -10,6 +10,68 @@ import freechips.rocketchip.util._
 
 case object MaxHartIdBits extends Field[Int]
 
+
+
+class RocketTraceBundle extends Bundle {
+  val top_bit = Bool() // For trace sanity checking
+  val top_second = Bool() // For trace sanity checking
+  val recovering = Bool()
+  val uops_issued = Bool()
+  val fetch_bubbles = Bool()
+  val fp_stall = Bool()
+  val div_stall = Bool()
+  val ibuf_valid = Bool()
+  val ibuf_ready = Bool()
+  val data_hazard_wb = Bool()
+  val data_hazard_mem = Bool()
+  val data_hazard_ex = Bool()
+  val id_mem_hazard = Bool()
+  val id_wb_hazard = Bool()
+  val id_ex_hazard = Bool()
+  val ctrl_stalld_w = Bool()
+  val take_pc_mem_wb = Bool()
+  val take_pc = Bool()
+  val wb_reg_valid = Bool()
+  val mem_reg_valid = Bool()
+  val ex_reg_valid = Bool()
+  val wb_pc_valid = Bool()
+  val mem_pc_valid = Bool()
+  val ex_pc_valid = Bool()
+  val icache_miss = Bool()
+  val dcache_miss = Bool()
+  val dcache_release = Bool()
+  val itlb_miss = Bool()
+  val dtlb_miss = Bool()
+  val flush = Bool()
+  val replay = Bool()
+  val control_flow_mispr = Bool()
+  val branch_mispr = Bool()
+  val dcache_blocked = Bool()
+  val icache_blocked = Bool()
+  val csr_interlock = Bool()
+  val id_sboard_hazard = Bool()
+  val id_vconfig_hazard = Bool()
+  val rocc_busy = Bool()
+  val id_do_fence = Bool()
+  val load_use = Bool()
+  val csr_stall = Bool()
+  val id_reg_pause = Bool()
+  val retire = Bool()
+  val traceStall = Bool()
+  val dmem_ready = Bool()
+  val branch_instr = Bool()
+  val jal = Bool()
+  val jalr = Bool()
+  val load = Bool()
+  val store = Bool()
+  val amo = Bool()
+  val system = Bool()
+  val mul = Bool()
+  val div = Bool()
+  val test_data = UInt((9 + 64).W) // For trace sanity checking
+  val bottom_bit = Bool() // For trace sanity checking
+}
+
 // These parameters can be varied per-core
 trait CoreParams {
   val bootFreqHz: BigInt
@@ -55,7 +117,7 @@ trait CoreParams {
   val traceHasWdata: Boolean
   val xLen: Int
   val pgLevels: Int
-  def traceCustom: Option[Data] = None
+  def traceCustom: Option[Data] = Some(new RocketTraceBundle)
   def customIsaExt: Option[String] = None
   def customCSRs(implicit p: Parameters): CustomCSRs = new CustomCSRs
 
