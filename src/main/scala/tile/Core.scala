@@ -146,13 +146,6 @@ trait CoreParams {
 
 }
 
-
-// Custom Trace events for RocketCore
-class RocketTraceBundle extends Bundle {
-  val ctrl_killd = Bool()
-}
-
-
 trait HasCoreParameters extends HasTileParameters {
   implicit val p: Parameters
   //def coreParams: CoreParams = p(TileKey).core
