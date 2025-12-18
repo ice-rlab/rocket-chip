@@ -119,7 +119,7 @@ trait CoreParams {
   /* tracing for TMA testing*/
   // val enableDetailedTrace: Boolean
 
-  val nLBREntries : Int = 0
+  val nCTREntries : Int = 0
   
   val xLen: Int
   val pgLevels: Int
@@ -183,7 +183,7 @@ trait HasCoreParameters extends HasTileParameters {
   val nPMPs = coreParams.nPMPs
   val pmpGranularity = coreParams.pmpGranularity
   val nPerfCounters = coreParams.nPerfCounters
-  val nLBREntries = coreParams.nLBREntries
+  val nCTREntries = coreParams.nCTREntries
   val mtvecInit = coreParams.mtvecInit
   val mtvecWritable = coreParams.mtvecWritable
   val customIsaExt = coreParams.customIsaExt
