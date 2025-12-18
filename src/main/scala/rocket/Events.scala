@@ -4,9 +4,17 @@
 package freechips.rocketchip.rocket
 
 import chisel3._
-import chisel3.util.log2Ceil
+import chisel3.util.{Cat, log2Ceil}
 import freechips.rocketchip.util._
 import freechips.rocketchip.util.property
+
+/* Superscalar aggregation mode */
+object TopdownPMUMode {
+  val NONE = 0                  // Do not track top-down events
+  val SCALAR_COUNTERS = 1       // Count events separately
+  val ADD_WIRES = 2             // Aggregate each separate event into a multi-bit increment signal
+  val DISTRIBUTED_COUNTERS = 3  // Use local counter and arbitrate each overflow as increment
+}
 
 class EventSet(val gate: (UInt, UInt) => Bool, val events: Seq[(String, () => Bool)]) {
   def size = events.size
@@ -94,4 +102,97 @@ class SuperscalarEventSets(val eventSets: Seq[(Seq[EventSet], (UInt, UInt) => UI
 
   require(eventSets.forall(s => s._1.forall(_.size == s._1.head.size)))
   require(eventSetIdBits <= maxEventSetIdBits)
+}
+
+class AddWiresEventSets(val eventSets: Seq[Seq[EventSet]]) {
+  def toSuperscalarEventSets: SuperscalarEventSets = new SuperscalarEventSets(eventSets.map { case set =>
+    (
+      set,
+      (a: UInt, b: UInt) => { // accumulate sum of event signals
+        val a2 = Wire(UInt(log2Ceil(1+eventSets.size).W))
+        val b2 = Wire(UInt(log2Ceil(1+eventSets.size).W))
+        a2 := a
+        b2 := b
+        a2 + b2
+      }
+    )
+  })
+}
+
+class DistributedCountersEventSets(val eventSets: Seq[Seq[EventSet]], reset: Bool) {
+  def toSuperscalarEventSets: SuperscalarEventSets = new SuperscalarEventSets(eventSets.map { case seq =>
+    if (seq.size == 1) {
+      (
+        seq,
+        (a: UInt, b: UInt) => a + b
+      )
+    } else {
+
+      val n_sources = seq.size
+      val n_events = seq.head.size
+      val ctr_width = if (n_sources == 1) 1 else log2Ceil(n_sources)
+
+      // one barrel shifter for each set of superscalar events from the same sources
+      val counter_ack = Reg(UInt(n_sources.W))
+      when (reset) {
+        counter_ack := 1.U(n_sources.W)
+      } .otherwise {
+        counter_ack := Cat(counter_ack(n_sources-2,0), counter_ack(n_sources-1))
+      }
+      (
+        Seq.tabulate(seq.length) ( x =>
+          new EventSet((mask, hits) => (mask & hits).orR, seq(x).events.map { case e =>
+            val ctr = freechips.rocketchip.util.WideCounterOverflow(
+              ctr_width, e._2().asUInt, false, false.B, counter_ack(x))
+            (
+              e._1,
+              () => ctr.overflow & counter_ack(x)
+            )
+          })
+        ),
+        (a: UInt, b: UInt) => a + b
+      )
+    }
+  })
+}
+
+class TopdownEventSets(val pmuMode: Int, val eventSets: Seq[Seq[EventSet]], reset: Bool) {
+  def toSuperscalarEventSets: SuperscalarEventSets = {
+    pmuMode match {
+      case TopdownPMUMode.NONE =>
+        new SuperscalarEventSets(eventSets.map { case sets =>
+          var flattened = Seq[(String, () => chisel3.Bool)]()
+          sets foreach { set =>
+            flattened = flattened ++ set.events
+          }
+          (
+            Seq(new EventSet(
+              (mask, hits) => (mask & hits).orR,
+              flattened
+            )),
+            (a: UInt, b: UInt) => a + b
+          )
+        })
+      case TopdownPMUMode.SCALAR_COUNTERS =>
+        new SuperscalarEventSets(eventSets.map { case sets =>
+          var flattened = Seq[(String, () => chisel3.Bool)]()
+          sets foreach { set =>
+            flattened = flattened ++ set.events
+          }
+          (
+            Seq(new EventSet(
+              (mask, hits) => (mask & hits).orR,
+              flattened
+            )),
+            (a: UInt, b: UInt) => a + b
+          )
+        })
+      case TopdownPMUMode.ADD_WIRES =>
+        new AddWiresEventSets(eventSets).toSuperscalarEventSets
+      case TopdownPMUMode.DISTRIBUTED_COUNTERS =>
+        new DistributedCountersEventSets(eventSets, reset).toSuperscalarEventSets
+      case _ =>
+        null
+    }
+  }
 }
