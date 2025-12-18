@@ -907,8 +907,8 @@ object CSRs {
   val vl = 0xc20
   val vtype = 0xc21
   val vlenb = 0xc22
-  val lbren   = 0xbc0
-  val lbrclr  = 0xbc1
+  val ctren   = 0xbc0
+  val ctrclr  = 0xbc1
   val lbto0 = 0xcc0
   val lbfrom0 = 0xcc1
   val lbto1 = 0xcc2
@@ -1404,8 +1404,8 @@ object CSRs {
     res += vl
     res += vtype
     res += vlenb
-    res += lbren
-    res += lbrclr
+    res += ctren
+    res += ctrclr
     res += lbto0
     res += lbfrom0
     res += lbto1
