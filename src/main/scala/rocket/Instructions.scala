@@ -909,6 +909,7 @@ object CSRs {
   val vlenb = 0xc22
   val ctren   = 0xbc0
   val ctrclr  = 0xbc1
+  val ctr_freeze_at_full  = 0xbc2
   val lbto0 = 0xcc0
   val lbfrom0 = 0xcc1
   val lbto1 = 0xcc2
@@ -1406,6 +1407,7 @@ object CSRs {
     res += vlenb
     res += ctren
     res += ctrclr
+    res += ctr_freeze_at_full
     res += lbto0
     res += lbfrom0
     res += lbto1

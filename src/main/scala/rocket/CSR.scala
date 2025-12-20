@@ -149,6 +149,7 @@ class MCTREntry(implicit p: Parameters) extends CoreBundle {
 class CTRcfg(implicit p: Parameters) extends CoreBundle {
   val en = Bool()
   val clr = Bool()
+  val freeze_at_full = Bool()
 }
 
 class PTBR(implicit p: Parameters) extends CoreBundle()(p) {
@@ -319,7 +320,7 @@ class CSRFileIO(hasBeu: Boolean)(implicit p: Parameters) extends CoreBundle
   val scontext = Output(UInt(coreParams.scontextWidth.W))
   val fiom = Output(Bool())
   val ctrcfg = Output(new CTRcfg())
-  val ctr = Input(Vec(nCTREntries, new MCTREntry()))
+  val ctr = Input(Vec(coreParams.nCTREntries, new MCTREntry()))
 
 
   val vector = usingVector.option(new Bundle {
@@ -613,6 +614,7 @@ class CSRFile(
   // CTR control registers
   val reg_ctr_en  = RegInit(false.B)
   val reg_ctr_clr = RegInit(false.B)
+  val reg_ctr_freeze_at_full = RegInit(false.B)
 
 
   val reg_mtinst_read_pseudo = Reg(Bool())
@@ -667,6 +669,7 @@ class CSRFile(
 
   io.ctrcfg.en  := reg_ctr_en
   io.ctrcfg.clr := reg_ctr_clr
+  io.ctrcfg.freeze_at_full := reg_ctr_freeze_at_full
 
   val isaMaskString =
     (if (usingMulDiv) "M" else "") +
@@ -886,14 +889,15 @@ class CSRFile(
   // CTR readmapping
   read_mapping += CSRs.ctren -> reg_ctr_en
   read_mapping += CSRs.ctrclr -> reg_ctr_clr
+  read_mapping += CSRs.ctr_freeze_at_full -> reg_ctr_freeze_at_full
 
-  require(nCTREntries <= 32)
+  require(coreParams.nCTREntries <= 32)
 
   private def maskedCTRField(x: UInt, valid: Bool): UInt =
     Mux(valid, x, 0.U)
 
   // CTR CSR read mapping
-  for (i <- 0 until nCTREntries) {
+  for (i <- 0 until coreParams.nCTREntries) {
     val toCsr   = CSRs.lbto0   + (i * 2)
     val fromCsr = CSRs.lbfrom0 + (i * 2)
 
@@ -1417,6 +1421,10 @@ class CSRFile(
       reg_ctr_en := io.rw.wdata(0)
     }
 
+    when (decoded_addr(CSRs.ctr_freeze_at_full)) {
+      reg_ctr_freeze_at_full := io.rw.wdata(0)
+    }
+
     when (decoded_addr(CSRs.ctrclr) && io.rw.wdata.orR) {
       reg_ctr_clr := true.B
     }
@@ -1428,7 +1436,7 @@ class CSRFile(
 
       if (usingUser) {
         reg_mstatus.mprv := new_mstatus.mprv
-        reg_mstatus.mpp := legalizePrivilege(new_mstatus.mpp)
+      reg_mstatus.mpp := legalizePrivilege(new_mstatus.mpp)
         if (usingSupervisor) {
           reg_mstatus.spp := new_mstatus.spp
           reg_mstatus.spie := new_mstatus.spie
