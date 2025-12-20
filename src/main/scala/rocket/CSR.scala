@@ -898,140 +898,140 @@ class CSRFile(
 
   // CTR CSR read mapping
   for (i <- 0 until coreParams.nCTREntries) {
-    val toCsr   = CSRs.lbto0   + (i * 2)
-    val fromCsr = CSRs.lbfrom0 + (i * 2)
+    val toCsr   = CSRs.ctrto0   + (i * 2)
+    val fromCsr = CSRs.ctrfrom0 + (i * 2)
 
     read_mapping += toCsr   -> maskedCTRField(io.ctr(i).to.asUInt,   io.ctr(i).valid)
     read_mapping += fromCsr -> maskedCTRField(io.ctr(i).from.asUInt, io.ctr(i).valid)
   }
 
   // if (nCTREntries > 0) {
-  //   read_mapping += CSRs.lbto0   -> io.ctr(0).to.asUInt
-  //   read_mapping += CSRs.lbfrom0 -> io.ctr(0).from.asUInt
+  //   read_mapping += CSRs.ctrto0   -> io.ctr(0).to.asUInt
+  //   read_mapping += CSRs.ctrfrom0 -> io.ctr(0).from.asUInt
   // }
   // if (nCTREntries > 1) {
-  //   read_mapping += CSRs.lbto1   -> io.ctr(1).to.asUInt
-  //   read_mapping += CSRs.lbfrom1 -> io.ctr(1).from.asUInt
+  //   read_mapping += CSRs.ctrto1   -> io.ctr(1).to.asUInt
+  //   read_mapping += CSRs.ctrfrom1 -> io.ctr(1).from.asUInt
   // }
   // if (nCTREntries > 2) {
-  //   read_mapping += CSRs.lbto2   -> io.ctr(2).to.asUInt
-  //   read_mapping += CSRs.lbfrom2 -> io.ctr(2).from.asUInt
+  //   read_mapping += CSRs.ctrto2   -> io.ctr(2).to.asUInt
+  //   read_mapping += CSRs.ctrfrom2 -> io.ctr(2).from.asUInt
   // }
   // if (nCTREntries > 3) {
-  //   read_mapping += CSRs.lbto3   -> io.ctr(3).to.asUInt
-  //   read_mapping += CSRs.lbfrom3 -> io.ctr(3).from.asUInt
+  //   read_mapping += CSRs.ctrto3   -> io.ctr(3).to.asUInt
+  //   read_mapping += CSRs.ctrfrom3 -> io.ctr(3).from.asUInt
   // }
   // if (nCTREntries > 4) {
-  //   read_mapping += CSRs.lbto4   -> io.ctr(4).to.asUInt
-  //   read_mapping += CSRs.lbfrom4 -> io.ctr(4).from.asUInt
+  //   read_mapping += CSRs.ctrto4   -> io.ctr(4).to.asUInt
+  //   read_mapping += CSRs.ctrfrom4 -> io.ctr(4).from.asUInt
   // }
   // if (nCTREntries > 5) {
-  //   read_mapping += CSRs.lbto5   -> io.ctr(5).to.asUInt
-  //   read_mapping += CSRs.lbfrom5 -> io.ctr(5).from.asUInt
+  //   read_mapping += CSRs.ctrto5   -> io.ctr(5).to.asUInt
+  //   read_mapping += CSRs.ctrfrom5 -> io.ctr(5).from.asUInt
   // }
   // if (nCTREntries > 6) {
-  //   read_mapping += CSRs.lbto6   -> io.ctr(6).to.asUInt
-  //   read_mapping += CSRs.lbfrom6 -> io.ctr(6).from.asUInt
+  //   read_mapping += CSRs.ctrto6   -> io.ctr(6).to.asUInt
+  //   read_mapping += CSRs.ctrfrom6 -> io.ctr(6).from.asUInt
   // }
   // if (nCTREntries > 7) {
-  //   read_mapping += CSRs.lbto7   -> io.ctr(7).to.asUInt
-  //   read_mapping += CSRs.lbfrom7 -> io.ctr(7).from.asUInt
+  //   read_mapping += CSRs.ctrto7   -> io.ctr(7).to.asUInt
+  //   read_mapping += CSRs.ctrfrom7 -> io.ctr(7).from.asUInt
   // }
   // if (nCTREntries > 8) {
-  //   read_mapping += CSRs.lbto8   -> io.ctr(8).to.asUInt
-  //   read_mapping += CSRs.lbfrom8 -> io.ctr(8).from.asUInt
+  //   read_mapping += CSRs.ctrto8   -> io.ctr(8).to.asUInt
+  //   read_mapping += CSRs.ctrfrom8 -> io.ctr(8).from.asUInt
   // }
   // if (nCTREntries > 9) {
-  //   read_mapping += CSRs.lbto9   -> io.ctr(9).to.asUInt
-  //   read_mapping += CSRs.lbfrom9 -> io.ctr(9).from.asUInt
+  //   read_mapping += CSRs.ctrto9   -> io.ctr(9).to.asUInt
+  //   read_mapping += CSRs.ctrfrom9 -> io.ctr(9).from.asUInt
   // }
   // if (nCTREntries > 10) {
-  //   read_mapping += CSRs.lbto10   -> io.ctr(10).to.asUInt
-  //   read_mapping += CSRs.lbfrom10 -> io.ctr(10).from.asUInt
+  //   read_mapping += CSRs.ctrto10   -> io.ctr(10).to.asUInt
+  //   read_mapping += CSRs.ctrfrom10 -> io.ctr(10).from.asUInt
   // }
   // if (nCTREntries > 11) {
-  //   read_mapping += CSRs.lbto11   -> io.ctr(11).to.asUInt
-  //   read_mapping += CSRs.lbfrom11 -> io.ctr(11).from.asUInt
+  //   read_mapping += CSRs.ctrto11   -> io.ctr(11).to.asUInt
+  //   read_mapping += CSRs.ctrfrom11 -> io.ctr(11).from.asUInt
   // }
   // if (nCTREntries > 12) {
-  //   read_mapping += CSRs.lbto12   -> io.ctr(12).to.asUInt
-  //   read_mapping += CSRs.lbfrom12 -> io.ctr(12).from.asUInt
+  //   read_mapping += CSRs.ctrto12   -> io.ctr(12).to.asUInt
+  //   read_mapping += CSRs.ctrfrom12 -> io.ctr(12).from.asUInt
   // }
   // if (nCTREntries > 13) {
-  //   read_mapping += CSRs.lbto13   -> io.ctr(13).to.asUInt
-  //   read_mapping += CSRs.lbfrom13 -> io.ctr(13).from.asUInt
+  //   read_mapping += CSRs.ctrto13   -> io.ctr(13).to.asUInt
+  //   read_mapping += CSRs.ctrfrom13 -> io.ctr(13).from.asUInt
   // }
   // if (nCTREntries > 14) {
-  //   read_mapping += CSRs.lbto14   -> io.ctr(14).to.asUInt
-  //   read_mapping += CSRs.lbfrom14 -> io.ctr(14).from.asUInt
+  //   read_mapping += CSRs.ctrto14   -> io.ctr(14).to.asUInt
+  //   read_mapping += CSRs.ctrfrom14 -> io.ctr(14).from.asUInt
   // }
   // if (nCTREntries > 15) {
-  //   read_mapping += CSRs.lbto15   -> io.ctr(15).to.asUInt
-  //   read_mapping += CSRs.lbfrom15 -> io.ctr(15).from.asUInt
+  //   read_mapping += CSRs.ctrto15   -> io.ctr(15).to.asUInt
+  //   read_mapping += CSRs.ctrfrom15 -> io.ctr(15).from.asUInt
   // }
   // if (nCTREntries > 16) {
-  //   read_mapping += CSRs.lbto16   -> io.ctr(16).to.asUInt
-  //   read_mapping += CSRs.lbfrom16 -> io.ctr(16).from.asUInt
+  //   read_mapping += CSRs.ctrto16   -> io.ctr(16).to.asUInt
+  //   read_mapping += CSRs.ctrfrom16 -> io.ctr(16).from.asUInt
   // }
   // if (nCTREntries > 17) {
-  //   read_mapping += CSRs.lbto17   -> io.ctr(17).to.asUInt
-  //   read_mapping += CSRs.lbfrom17 -> io.ctr(17).from.asUInt
+  //   read_mapping += CSRs.ctrto17   -> io.ctr(17).to.asUInt
+  //   read_mapping += CSRs.ctrfrom17 -> io.ctr(17).from.asUInt
   // }
   // if (nCTREntries > 18) {
-  //   read_mapping += CSRs.lbto18   -> io.ctr(18).to.asUInt
-  //   read_mapping += CSRs.lbfrom18 -> io.ctr(18).from.asUInt
+  //   read_mapping += CSRs.ctrto18   -> io.ctr(18).to.asUInt
+  //   read_mapping += CSRs.ctrfrom18 -> io.ctr(18).from.asUInt
   // }
   // if (nCTREntries > 19) {
-  //   read_mapping += CSRs.lbto19   -> io.ctr(19).to.asUInt
-  //   read_mapping += CSRs.lbfrom19 -> io.ctr(19).from.asUInt
+  //   read_mapping += CSRs.ctrto19   -> io.ctr(19).to.asUInt
+  //   read_mapping += CSRs.ctrfrom19 -> io.ctr(19).from.asUInt
   // }
   // if (nCTREntries > 20) {
-  //   read_mapping += CSRs.lbto20   -> io.ctr(20).to.asUInt
-  //   read_mapping += CSRs.lbfrom20 -> io.ctr(20).from.asUInt
+  //   read_mapping += CSRs.ctrto20   -> io.ctr(20).to.asUInt
+  //   read_mapping += CSRs.ctrfrom20 -> io.ctr(20).from.asUInt
   // }
   // if (nCTREntries > 21) {
-  //   read_mapping += CSRs.lbto21   -> io.ctr(21).to.asUInt
-  //   read_mapping += CSRs.lbfrom21 -> io.ctr(21).from.asUInt
+  //   read_mapping += CSRs.ctrto21   -> io.ctr(21).to.asUInt
+  //   read_mapping += CSRs.ctrfrom21 -> io.ctr(21).from.asUInt
   // }
   // if (nCTREntries > 22) {
-  //   read_mapping += CSRs.lbto22   -> io.ctr(22).to.asUInt
-  //   read_mapping += CSRs.lbfrom22 -> io.ctr(22).from.asUInt
+  //   read_mapping += CSRs.ctrto22   -> io.ctr(22).to.asUInt
+  //   read_mapping += CSRs.ctrfrom22 -> io.ctr(22).from.asUInt
   // }
   // if (nCTREntries > 23) {
-  //   read_mapping += CSRs.lbto23   -> io.ctr(23).to.asUInt
-  //   read_mapping += CSRs.lbfrom23 -> io.ctr(23).from.asUInt
+  //   read_mapping += CSRs.ctrto23   -> io.ctr(23).to.asUInt
+  //   read_mapping += CSRs.ctrfrom23 -> io.ctr(23).from.asUInt
   // }
   // if (nCTREntries > 24) {
-  //   read_mapping += CSRs.lbto24   -> io.ctr(24).to.asUInt
-  //   read_mapping += CSRs.lbfrom24 -> io.ctr(24).from.asUInt
+  //   read_mapping += CSRs.ctrto24   -> io.ctr(24).to.asUInt
+  //   read_mapping += CSRs.ctrfrom24 -> io.ctr(24).from.asUInt
   // }
   // if (nCTREntries > 25) {
-  //   read_mapping += CSRs.lbto25   -> io.ctr(25).to.asUInt
-  //   read_mapping += CSRs.lbfrom25 -> io.ctr(25).from.asUInt
+  //   read_mapping += CSRs.ctrto25   -> io.ctr(25).to.asUInt
+  //   read_mapping += CSRs.ctrfrom25 -> io.ctr(25).from.asUInt
   // }
   // if (nCTREntries > 26) {
-  //   read_mapping += CSRs.lbto26   -> io.ctr(26).to.asUInt
-  //   read_mapping += CSRs.lbfrom26 -> io.ctr(26).from.asUInt
+  //   read_mapping += CSRs.ctrto26   -> io.ctr(26).to.asUInt
+  //   read_mapping += CSRs.ctrfrom26 -> io.ctr(26).from.asUInt
   // }
   // if (nCTREntries > 27) {
-  //   read_mapping += CSRs.lbto27   -> io.ctr(27).to.asUInt
-  //   read_mapping += CSRs.lbfrom27 -> io.ctr(27).from.asUInt
+  //   read_mapping += CSRs.ctrto27   -> io.ctr(27).to.asUInt
+  //   read_mapping += CSRs.ctrfrom27 -> io.ctr(27).from.asUInt
   // }
   // if (nCTREntries > 28) {
-  //   read_mapping += CSRs.lbto28   -> io.ctr(28).to.asUInt
-  //   read_mapping += CSRs.lbfrom28 -> io.ctr(28).from.asUInt
+  //   read_mapping += CSRs.ctrto28   -> io.ctr(28).to.asUInt
+  //   read_mapping += CSRs.ctrfrom28 -> io.ctr(28).from.asUInt
   // }
   // if (nCTREntries > 29) {
-  //   read_mapping += CSRs.lbto29   -> io.ctr(29).to.asUInt
-  //   read_mapping += CSRs.lbfrom29 -> io.ctr(29).from.asUInt
+  //   read_mapping += CSRs.ctrto29   -> io.ctr(29).to.asUInt
+  //   read_mapping += CSRs.ctrfrom29 -> io.ctr(29).from.asUInt
   // }
   // if (nCTREntries > 30) {
-  //   read_mapping += CSRs.lbto30   -> io.ctr(30).to.asUInt
-  //   read_mapping += CSRs.lbfrom30 -> io.ctr(30).from.asUInt
+  //   read_mapping += CSRs.ctrto30   -> io.ctr(30).to.asUInt
+  //   read_mapping += CSRs.ctrfrom30 -> io.ctr(30).from.asUInt
   // }
   // if (nCTREntries > 31) {
-  //   read_mapping += CSRs.lbto31   -> io.ctr(31).to.asUInt
-  //   read_mapping += CSRs.lbfrom31 -> io.ctr(31).from.asUInt
+  //   read_mapping += CSRs.ctrto31   -> io.ctr(31).to.asUInt
+  //   read_mapping += CSRs.ctrfrom31 -> io.ctr(31).from.asUInt
   // }
 
   // mimpid, marchid, mvendorid, and mconfigptr are 0 unless overridden by customCSRs
