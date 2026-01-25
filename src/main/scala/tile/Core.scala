@@ -60,6 +60,7 @@ trait CoreParams {
   val pgLevels: Int
   def traceCustom: Option[Data] = None
   def customIsaExt: Option[String] = None
+
   def customCSRs(implicit p: Parameters): CustomCSRs = new CustomCSRs
 
   def hasSupervisorMode: Boolean = useSupervisor || useVM
@@ -128,7 +129,7 @@ trait HasCoreParameters extends HasTileParameters {
   val mtvecInit = coreParams.mtvecInit
   val mtvecWritable = coreParams.mtvecWritable
   val customIsaExt = coreParams.customIsaExt
-  
+
   val traceHasWdata = coreParams.traceHasWdata
 
   def vLen = coreParams.vLen
