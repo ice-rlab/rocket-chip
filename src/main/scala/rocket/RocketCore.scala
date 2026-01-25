@@ -1277,6 +1277,7 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   coreMonitorBundle.priv_mode := csr.io.trace(0).priv
 
   if (io.traceDoctor.traceWidth >= (64 + 64 + (retireWidth * 64))) {
+<<<<<<< HEAD
        val traceValids = for (i <- 0 until retireWidth) yield {
          csr.io.trace(i).valid
        }
@@ -1285,7 +1286,7 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
        val traceAddresses: UInt = Cat((for (i <- 0 until retireWidth) yield {
          csr.io.trace(0).iaddr(vaddrBitsExtended-1, 0).sextTo(xLen).pad(64)
        }).reverse)
-   
+
       io.traceDoctor.valid := traceValids.reduce(_||_)
        io.traceDoctor.bits := Cat(Seq(
          traceTimestamp.pad(64),
@@ -1294,6 +1295,21 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
        ).reverse).pad(io.traceDoctor.traceWidth).asBools
   }else{
     io.traceDoctor.valid := false.B
+    //val traceValids = for (i <- 0 until retireWidth) yield {
+    //  csr.io.trace(i).valid
+    //}
+    //val traceTimestamp = csr.io.time
+    //val traceAddresses = for (i <- 0 until retireWidth) yield {
+    //  csr.io.trace(0).iaddr(vaddrBitsExtended-1, 0).sextTo(xLen)
+    //}
+    //val coreStalled = csr.io.csr_stall
+//
+    //io.traceDoctor.valid := traceValids.reduce(_||_) && !coreStalled
+    //io.traceDoctor.bits := Cat(Seq(
+    //  traceTimestamp(63, 0).pad(64),
+    //  traceValids.reverse.asUInt()(retireWidth - 1, 0).pad(64),
+    //  traceAddresses.map(a => a(63, 0).pad(64)).reverse.asUInt()
+    //).reverse).pad(io.traceDoctor.traceWidth).asBools
   }
 
   if (enableCommitLog) {
