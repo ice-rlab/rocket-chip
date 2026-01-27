@@ -1277,7 +1277,6 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   coreMonitorBundle.priv_mode := csr.io.trace(0).priv
 
   if (io.traceDoctor.traceWidth >= (64 + 64 + (retireWidth * 64))) {
-<<<<<<< HEAD
        val traceValids = for (i <- 0 until retireWidth) yield {
          csr.io.trace(i).valid
        }
@@ -1287,14 +1286,20 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
          csr.io.trace(0).iaddr(vaddrBitsExtended-1, 0).sextTo(xLen).pad(64)
        }).reverse)
 
-      io.traceDoctor.valid := traceValids.reduce(_||_)
-       io.traceDoctor.bits := Cat(Seq(
-         traceTimestamp.pad(64),
-         traceFlags.pad(64),
-         traceAddresses
-       ).reverse).pad(io.traceDoctor.traceWidth).asBools
+      //io.traceDoctor.valid := traceValids.reduce(_||_)
+      io.traceDoctor.valid := true.B
+      io.traceDoctor.bits := Cat(Seq(
+        csr.io.time.pad(64)
+      ).reverse).pad(io.traceDoctor.traceWidth).asBools
   }else{
-    io.traceDoctor.valid := false.B
+    if (io.traceDoctor.traceWidth == 0) {
+      io.traceDoctor.valid := false.B
+    } else {
+      io.traceDoctor.valid := true.B
+      io.traceDoctor.bits := Cat(Seq(
+        csr.io.time.pad(64)
+      ).reverse).pad(io.traceDoctor.traceWidth).asBools
+    }
     //val traceValids = for (i <- 0 until retireWidth) yield {
     //  csr.io.trace(i).valid
     //}

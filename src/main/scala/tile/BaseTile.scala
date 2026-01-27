@@ -288,10 +288,6 @@ abstract class BaseTile private (crossing: ClockCrossingType, q: Parameters)
   //       assuming the core itself is diplomatic.
   //       Then these nodes should just become IdentityNodes of their respective type
 
-  val traceDoctorSourceNode = BundleBridgeSource(() => new TraceDoctor(tileParams.core.traceDoctorWidth))
-  private val traceDoctorNexus = BundleBroadcast[TraceDoctor]() // backwards compatiblity; not blocked during stretched reset
-  val traceDoctorNode: BundleBridgeOutwardNode[TraceDoctor] = traceDoctorNexus := traceDoctorSourceNode
-
   protected def traceRetireWidth = tileParams.core.retireWidth
   /** Node for the core to drive legacy "raw" instruction trace. */
   val traceSourceNode = BundleBridgeSource(() => new TraceBundle)

@@ -10,6 +10,15 @@ import freechips.rocketchip.subsystem.{TilesLocated, NumTiles, HierarchicalLocat
 import freechips.rocketchip.tile.{RocketTileParams, RocketTileBoundaryBufferParams, FPUParams}
 import scala.reflect.ClassTag
 
+class WithTraceDoctor(n: Int) extends Config((site, here, up) => {
+  case TilesLocated(InSubsystem) => up(TilesLocated(InSubsystem), site) map {
+    case cp: RocketCoreParams => cp.copy(
+      setTraceDoctorWidth = n
+    )
+    case other => other
+  }
+})
+
 // All the user-level bells and whistles
 class WithNHugeCores(
   n: Int,
