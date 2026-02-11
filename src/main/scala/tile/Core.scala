@@ -55,7 +55,6 @@ trait CoreParams {
   val mtvecInit: Option[BigInt]
   val mtvecWritable: Boolean
   val traceHasWdata: Boolean
-  def traceDoctorWidth: Int = 0
   val xLen: Int
   val pgLevels: Int
   def traceCustom: Option[Data] = None
