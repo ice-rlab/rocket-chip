@@ -12,7 +12,7 @@ import org.chipsalliance.diplomacy.bundlebridge._
 
 import freechips.rocketchip.resources.{PropertyMap, PropertyOption, ResourceReference, DTSTimebase}
 import freechips.rocketchip.interrupts.{IntInwardNode, IntOutwardNode}
-import freechips.rocketchip.rocket.{ICacheParams, DCacheParams, BTBParams, ASIdBits, VMIdBits, TraceAux, BPWatch, TraceDoctor}
+import freechips.rocketchip.rocket.{ICacheParams, DCacheParams, BTBParams, ASIdBits, VMIdBits, TraceAux, BPWatch}
 import freechips.rocketchip.subsystem.{
   HierarchicalElementParams, InstantiableHierarchicalElementParams, HierarchicalElementCrossingParamsLike,
   CacheBlockBytes, SystemBusKey, BaseHierarchicalElement, InsertTimingClosureRegistersOnHartIds, BaseHierarchicalElementModuleImp
@@ -293,10 +293,6 @@ abstract class BaseTile private (crossing: ClockCrossingType, q: Parameters)
   val traceSourceNode = BundleBridgeSource(() => new TraceBundle)
   /** Node for external consumers to source a legacy instruction trace from the core. */
   val traceNode = traceSourceNode
-
-  val traceDoctorSourceNode = BundleBridgeSource(() => new TraceDoctor(tileParams.core.traceDoctorWidth))
-  private val traceDoctorNexus = BundleBroadcast[TraceDoctor]() // backwards compatiblity; not blocked during stretched reset
-  val traceDoctorNode: BundleBridgeOutwardNode[TraceDoctor] = traceDoctorNexus := traceDoctorSourceNode
 
   def traceCoreParams = new TraceCoreParams()
   /** Node for core to drive instruction trace conforming to RISC-V Processor Trace spec V1.0 */
