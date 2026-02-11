@@ -59,7 +59,6 @@ case class RocketCoreParams(
   haveCease: Boolean = true, // non-standard CEASE instruction
   haveSimTimeout: Boolean = true, // add plusarg for simulation timeout
   vector: Option[RocketCoreVectorParams] = None,
-  setTraceDoctorWidth: Int = 0
 ) extends CoreParams {
   val lgPauseCycles = 5
   val haveFSDirty = false
@@ -82,7 +81,6 @@ case class RocketCoreParams(
   override val customIsaExt = Option.when(haveCease)("xrocket") // CEASE instruction
   override def minFLen: Int = fpu.map(_.minFLen).getOrElse(32)
   override def customCSRs(implicit p: Parameters) = new RocketCustomCSRs
-  override def traceDoctorWidth: Int = setTraceDoctorWidth
 }
 
 trait HasRocketCoreParameters extends HasCoreParameters {
@@ -146,7 +144,6 @@ trait HasRocketCoreIO extends HasRocketCoreParameters {
     val fpu = Flipped(new FPUCoreIO())
     val rocc = Flipped(new RoCCCoreIO(nTotalRoCCCSRs))
     val trace = Output(new TraceBundle)
-    val traceDoctor = Output(new TraceDoctor(coreParams.traceDoctorWidth))
     val bpwatch = Output(Vec(coreParams.nBreakpoints, new BPWatch(coreParams.retireWidth)))
     val cease = Output(Bool())
     val wfi = Output(Bool())
@@ -1276,46 +1273,7 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   coreMonitorBundle.excpt := csr.io.trace(0).exception
   coreMonitorBundle.priv_mode := csr.io.trace(0).priv
 
-  if (io.traceDoctor.traceWidth >= (64 + 64 + (retireWidth * 64))) {
-       val traceValids = for (i <- 0 until retireWidth) yield {
-         csr.io.trace(i).valid
-       }
-       val traceTimestamp: UInt = csr.io.time(63, 0)
-       val traceFlags: UInt = Cat(traceValids.reverse)(retireWidth - 1, 0)
-       val traceAddresses: UInt = Cat((for (i <- 0 until retireWidth) yield {
-         csr.io.trace(0).iaddr(vaddrBitsExtended-1, 0).sextTo(xLen).pad(64)
-       }).reverse)
-
-      //io.traceDoctor.valid := traceValids.reduce(_||_)
-      io.traceDoctor.valid := true.B
-      io.traceDoctor.bits := Cat(Seq(
-        csr.io.time.pad(64)
-      ).reverse).pad(io.traceDoctor.traceWidth).asBools
-  }else{
-    if (io.traceDoctor.traceWidth == 0) {
-      io.traceDoctor.valid := false.B
-    } else {
-      io.traceDoctor.valid := true.B
-      io.traceDoctor.bits := Cat(Seq(
-        csr.io.time.pad(64)
-      ).reverse).pad(io.traceDoctor.traceWidth).asBools
-    }
-    //val traceValids = for (i <- 0 until retireWidth) yield {
-    //  csr.io.trace(i).valid
-    //}
-    //val traceTimestamp = csr.io.time
-    //val traceAddresses = for (i <- 0 until retireWidth) yield {
-    //  csr.io.trace(0).iaddr(vaddrBitsExtended-1, 0).sextTo(xLen)
-    //}
-    //val coreStalled = csr.io.csr_stall
-//
-    //io.traceDoctor.valid := traceValids.reduce(_||_) && !coreStalled
-    //io.traceDoctor.bits := Cat(Seq(
-    //  traceTimestamp(63, 0).pad(64),
-    //  traceValids.reverse.asUInt()(retireWidth - 1, 0).pad(64),
-    //  traceAddresses.map(a => a(63, 0).pad(64)).reverse.asUInt()
-    //).reverse).pad(io.traceDoctor.traceWidth).asBools
-  }
+  //midas.targetutils.TraceDoctorTarget(csr.io.time, "time", "cycle counter")
 
   if (enableCommitLog) {
     val t = csr.io.trace(0)

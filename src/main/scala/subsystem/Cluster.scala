@@ -14,7 +14,6 @@ import freechips.rocketchip.prci.{ClockCrossingType, NoCrossing, ClockSinkParame
 import freechips.rocketchip.tile.{RocketTile, NMI, TraceBundle}
 import freechips.rocketchip.tilelink.TLWidthWidget
 import freechips.rocketchip.util.TraceCoreInterface
-import freechips.rocketchip.rocket.TraceDoctor
 
 import scala.collection.immutable.SortedMap
 
@@ -76,7 +75,6 @@ class Cluster(
   lazy val tileResetVectorNodes = totalTileIdList.map { i => (i, BundleBridgeIdentityNode[UInt]()) }.to(SortedMap)
   lazy val traceCoreNodes = totalTileIdList.map { i => (i, BundleBridgeIdentityNode[TraceCoreInterface]()) }.to(SortedMap)
   lazy val traceNodes = totalTileIdList.map { i => (i, BundleBridgeIdentityNode[TraceBundle]()) }.to(SortedMap)
-  lazy val traceDoctorNodes = totalTileIdList.map { i => (i, BundleBridgeIdentityNode[TraceDoctor]()) }.to(SortedMap)
 
   // TODO fix: shouldn't need to connect dummy notifications
   tileHaltXbarNode := NullIntSource()
@@ -206,13 +204,6 @@ trait CanAttachCluster {
         resetCrossingType = crossingParams.resetCrossingType)
       context.traceNodes(hartid) := traceNexusNode := node
     }
-
-    domain.element.traceDoctorNodes.foreach { case (hartid, node) =>
-      val traceDoctorNexusNode = BundleBridgeBlockDuringReset[TraceDoctor](
-        resetCrossingType = crossingParams.resetCrossingType)
-      context.traceDoctorNodes(hartid) := traceDoctorNexusNode := node
-    }
-
 
     domain.element.traceCoreNodes.foreach { case (hartid, node) =>
       val traceCoreNexusNode = BundleBridgeBlockDuringReset[TraceCoreInterface](
