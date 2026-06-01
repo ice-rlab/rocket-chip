@@ -34,6 +34,8 @@ trait CoreParams {
   val decodeWidth: Int
   val retireWidth: Int
   val instBits: Int
+  val useCTR: Boolean
+  val nCTREntries: Int
   val nLocalInterrupts: Int
   val useNMI: Boolean
   val nPMPs: Int
@@ -114,6 +116,11 @@ trait HasCoreParameters extends HasTileParameters {
   val mtvecWritable = coreParams.mtvecWritable
   val customIsaExt = coreParams.customIsaExt
   val traceHasWdata = coreParams.traceHasWdata
+
+  val usingCTR = coreParams.useCTR
+  val nCTREntries = coreParams.nCTREntries
+  val usingSmcsrind = false 
+  val usingSscsrind = coreParams.useCTR
 
   def vLen = coreParams.vLen
   def eLen = coreParams.eLen

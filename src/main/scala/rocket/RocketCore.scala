@@ -30,6 +30,8 @@ case class RocketCoreParams(
   useZba: Boolean = false,
   useZbb: Boolean = false,
   useZbs: Boolean = false,
+  useCTR: Boolean = false,
+  nCTREntries: Int = 0,
   nLocalInterrupts: Int = 0,
   useNMI: Boolean = false,
   nBreakpoints: Int = 1,
@@ -938,7 +940,6 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   csr.io.rw.addr := wb_reg_inst(31,20)
   csr.io.rw.cmd := CSR.maskCmd(wb_reg_valid, wb_ctrl.csr)
   csr.io.rw.wdata := wb_reg_wdata
-
 
   io.rocc.csrs <> csr.io.roccCSRs
   io.trace.time := csr.io.time
