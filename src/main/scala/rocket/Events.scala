@@ -28,10 +28,14 @@ class EventSet(val gate: (UInt, UInt) => Bool, val events: Seq[(String, () => Bo
 
 class EventSets(val eventSets: Seq[EventSet]) {
   def maskEventSelector(eventSel: UInt): UInt = {
-    // allow full associativity between counters and event sets (for now?)
-    val setMask = (BigInt(1) << eventSetIdBits) - 1
+    val setMask  = (BigInt(1) << eventSetIdBits) - 1
     val maskMask = ((BigInt(1) << eventSets.map(_.size).max) - 1) << maxEventSetIdBits
-    eventSel & (setMask | maskMask).U
+
+    val ofMask =
+      if (eventSel.getWidth == 64) (BigInt(1) << 63)
+      else BigInt(0)
+
+    eventSel & (setMask | maskMask | ofMask).U(eventSel.getWidth.W)
   }
 
   private def decode(counter: UInt): (UInt, UInt) = {
