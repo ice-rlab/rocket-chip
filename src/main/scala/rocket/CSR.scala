@@ -252,51 +252,75 @@ class CTRDepth extends Bundle {
   val depth = UInt(3.W)  // [2:0] 0 -> 16, 1 -> 32, 2 ->  64, 3 -> 128, , 100 -> 256, 11x - reserved
 }
 
-// TODO: Only generate this optionally?
+class MARCtl extends Bundle {
+  val wpri0    = UInt(57.W)
+  val loadinh  = Bool()
+  val storeinh = Bool()
+  val lcofifrz = Bool()
+  val bpfrz    = Bool()
+  val m        = Bool()
+  val s        = Bool()
+  val u        = Bool()
+}
+
+class MARDepth extends Bundle {
+  val wpri0 = UInt(56.W)
+  val depth = UInt(8.W)
+}
+
+class MARStatus extends Bundle {
+  val wpri0  = UInt(31.W)
+  val frozen = Bool()
+  val wpri1  = UInt(24.W)
+  val wrptr  = UInt(8.W)
+}
+
 case class IndirectCSRRange(
   name: String,
   base: BigInt,
   size: Int
 ) {
-  require(size > 0)
-  require((size & (size - 1)) == 0, s"$name size must be power-of-two")
+  def hit(index: UInt): Bool =
+    index >= base.U(index.getWidth.W) &&
+    index < (base + size).U(index.getWidth.W)
 
-  val end: BigInt = base + size - 1
-  val idxBits: Int = log2Ceil(size)
-
-  def contains(sel: UInt, xLen: Int): Bool = {
-    val baseU = base.U(xLen.W)
-    val maskU = (~(BigInt(size - 1))).U(xLen.W)
-    (sel & maskU) === (baseU & maskU)
-  }
-
-  def index(sel: UInt): UInt = sel(idxBits - 1, 0)
+  def offset(index: UInt): UInt =
+    (index - base.U(index.getWidth.W))(log2Ceil(size) - 1, 0)
 }
 
-// Ranges for Sscsrind
 object SIndirectCSRRanges {
-  val ctr = IndirectCSRRange(
-    name = "ctr",
-    base = 0x200,
-    size = 256
-  )
+  val ctr = IndirectCSRRange("ctr", 0x200, 256)
 
-  val all = Seq(ctr)
+  // Custom because top bit set
+  val mar = IndirectCSRRange("mar", 0x80000200L, 256)
+
+  def all(coreParams: CoreParams): Seq[IndirectCSRRange] = Seq(
+    Option.when(coreParams.useCTR)(ctr),
+    Option.when(coreParams.useMAR)(mar)
+  ).flatten
 }
 
-// Ranges for Smcsrind: Currently no ranges in implementation.
 object MIndirectCSRRanges {
+  val all = Seq.empty[IndirectCSRRange]
 }
 
-class IndirectCSRIO(val xLen: Int) extends Bundle {
-  // siselect/miselect value
-  val index = Output(UInt(xLen.W)) 
-  // sireg/mireg alias number
+class IndirectCSRResp(val xLen: Int) extends Bundle {
+  val hit   = Bool()
+  val rdata = UInt(xLen.W)
+}
+
+class IndirectCSRIO(
+  val xLen: Int,
+  val ranges: Seq[IndirectCSRRange]
+) extends Bundle {
+  // Request from CSR file to indirect CSR users
+  val index = Output(UInt(xLen.W))
   val reg   = Output(UInt(3.W))
   val wen   = Output(Bool())
   val wdata = Output(UInt(xLen.W))
 
-  val rdata = Input(UInt(xLen.W))
+  // Responses from indirect CSR users back to CSR file
+  val resp = Flipped(Vec(ranges.length, new IndirectCSRResp(xLen)))
 }
 
 object CSR
@@ -451,9 +475,15 @@ class CSRFileIO(hasBeu: Boolean)(implicit p: Parameters) extends CoreBundle
     val set_vxsat = Input(Bool())
   })
 
-  
-  val scsrind = if (usingSscsrind) Some(new IndirectCSRIO(xLen)) else None
-  val mcsrind = if (usingSmcsrind) Some(new IndirectCSRIO(xLen)) else None
+  val scsrind =
+    if (usingSscsrind) {
+      Some(new IndirectCSRIO(xLen,SIndirectCSRRanges.all(coreParams)))
+    } else None
+
+  val mcsrind =
+    if (usingSmcsrind) {
+      Some(new IndirectCSRIO(xLen, MIndirectCSRRanges.all))
+    } else None
   
   val ctr = usingCTR.option(new Bundle {
     val mctrctl = Output(new CTRCtl())
@@ -463,6 +493,15 @@ class CSRFileIO(hasBeu: Boolean)(implicit p: Parameters) extends CoreBundle
 
     val sctrstatus_next = Input(new CTRStatus())
     val sctrstatus_next_valid = Input(new Bool())
+  })
+
+  val mar = usingMAR.option(new Bundle {
+    val marctl = Output(new MARCtl())
+    val smarstatus = Output(new MARStatus())
+    val smardepth = Output(new MARDepth())
+
+    val smarstatus_next = Input(new MARStatus())
+    val smarstatus_next_valid = Input(new Bool())
   })
 }
 
@@ -663,7 +702,13 @@ class CSRFile(
     val reg = Reg(UInt(xLen.W))
     (reg, Mux(usingSupervisor.B, reg & delegable_exceptions, 0.U))
   }
-  val reg_mip = Reg(new MIP)
+
+  val reg_mip = RegInit(0.U.asTypeOf(new MIP))
+
+  val clearLcofi       = WireDefault(false.B)
+  val softwareSetLcofi = WireDefault(false.B)
+  val hardwareSetLcofi = WireDefault(false.B)
+
   val reg_mepc = Reg(UInt(vaddrBitsExtended.W))
   val reg_mcause = RegInit(0.U(xLen.W))
   val reg_mtval = Reg(UInt(vaddrBitsExtended.W))
@@ -748,7 +793,14 @@ class CSRFile(
 
   val reg_mstateen0 = RegInit(mstateen0_init)
   val reg_hstateen0 = RegInit(hstateen0_init)
-  val reg_sstateen0 = RegInit(sstateen0_init)
+  val reg_sstateen0 = RegInit(0.U(xLen.W))
+  val reg_sstateen1 = RegInit(0.U(xLen.W))
+  val reg_sstateen2 = RegInit(0.U(xLen.W))
+  val reg_sstateen3 = RegInit(0.U(xLen.W))
+
+  val reg_mstateen1 = RegInit(0.U(xLen.W))
+  val reg_mstateen2 = RegInit(0.U(xLen.W))
+  val reg_mstateen3 = RegInit(0.U(xLen.W))
 
   val isSIndirectAlias =
     io.rw.addr === CSRs.sireg.U  ||
@@ -802,7 +854,7 @@ class CSRFile(
   }
 
 
-
+  // CTR registers and handling
   require(!usingCTR || usingSupervisor,
   "CTR requires S-mode / usingSupervisor")
   val reg_mctrctl = usingCTR.option {
@@ -854,6 +906,52 @@ class CSRFile(
     // ctr.sctrclr := io.rw.cmd === CSR.I && io.rw.addr === SCTRCLR_ADDR.U
   }
 
+  // Mar registers and handling
+  require(!usingMAR || usingSupervisor,
+    "MAR requires S-mode / usingSupervisor")
+
+  val reg_mmarctl = usingMAR.option {
+    RegInit(0.U.asTypeOf(new MARCtl))
+  }
+
+  val reg_smarstatus = usingMAR.option {
+    RegInit(0.U.asTypeOf(new MARStatus))
+  }
+
+  val reg_smardepth = usingMAR.option {
+    val r = RegInit(0.U.asTypeOf(new MARDepth))
+
+    val depthEnc = log2Ceil(nMAREntries) - 4
+    require(
+      Seq(16, 32, 64, 128, 256).contains(nMAREntries),
+      "nMAREntries must be one of 16, 32, 64, 128, 256"
+    )
+    println(s"nMAREntries = $nMAREntries, smardepth encoding = ${log2Ceil(nMAREntries) - 4}")
+
+    r.depth := depthEnc.U
+    r
+  }
+
+  for {
+    mar <- io.mar
+    marctl <- reg_mmarctl
+    smarstatus <- reg_smarstatus
+    smardepth <- reg_smardepth
+  } {
+    mar.marctl    := marctl
+    mar.smarstatus := smarstatus
+    mar.smardepth  := smardepth
+  }
+
+  for {
+    mar <- io.mar
+    smarstatus <- reg_smarstatus
+  } {
+    when(mar.smarstatus_next_valid) {
+      smarstatus := mar.smarstatus_next
+    }
+  }
+
   val reg_fflags = Reg(UInt(5.W))
   val reg_frm = Reg(UInt(3.W))
   val reg_vconfig = usingVector.option(Reg(new VConfig))
@@ -874,8 +972,29 @@ class CSRFile(
     else withClock(io.ungated_clock) { WideCounter(64, !io.csr_stall, inhibit = reg_mcountinhibit(0)) }
   val reg_hpmevent = io.counters.map(c => RegInit(0.U.asTypeOf(new MHPMEvent)))
     (io.counters zip reg_hpmevent) foreach { case (c, e) => c.eventSel := e.eventSel }
-  val reg_hpmcounter = io.counters.zipWithIndex.map { case (c, i) =>
-    WideCounter(CSR.hpmWidth, c.inc, reset = false, inhibit = reg_mcountinhibit(CSR.firstHPM+i)) }
+
+  val hpmEffectiveInc =
+    (io.counters zip reg_hpmevent).map { case (c, e) =>
+      val privilegeInhibit = MuxLookup(
+        reg_mstatus.prv,
+        false.B
+      )(Seq(
+        PRV.M.U -> e.minh,
+        PRV.S.U -> Mux(reg_mstatus.v, e.vsinh, e.sinh),
+        PRV.U.U -> Mux(reg_mstatus.v, e.vuinh, e.uinh)
+      ))
+
+      Mux(privilegeInhibit, 0.U, c.inc)
+    }
+
+  val reg_hpmcounter = hpmEffectiveInc.zipWithIndex.map { case (inc, i) =>
+    WideCounter(
+      CSR.hpmWidth,
+      inc,
+      reset = false,
+      inhibit = reg_mcountinhibit(CSR.firstHPM + i)
+    )
+  }
 
   // Shadow bits to all overflow bits in hpmevent registers
   val read_scountovf = WireInit(0.U(32.W))
@@ -952,7 +1071,10 @@ class CSRFile(
     CSRs.mcause -> reg_mcause,
     CSRs.mhartid -> io.hartid,
     CSRs.miselect -> reg_miselect,
-    CSRs.mstateen0 -> reg_mstateen0.asUInt
+    CSRs.mstateen0 -> reg_mstateen0.asUInt,
+    CSRs.mstateen1 -> reg_mstateen1,
+    CSRs.mstateen2 -> reg_mstateen2,
+    CSRs.mstateen3 -> reg_mstateen3
     )
   
   val debug_csrs = if (!usingDebug) LinkedHashMap() else LinkedHashMap[Int,Bits](
@@ -961,25 +1083,41 @@ class CSRFile(
     CSRs.dscratch0 -> reg_dscratch0.asUInt) ++
     reg_dscratch1.map(r => CSRs.dscratch1 -> r)
 
+  private def indirectCSRReadData(ind: IndirectCSRIO): UInt = {
+    val hitVec  = ind.resp.map(_.hit)
+    val dataVec = ind.resp.map(_.rdata)
+
+    assert(PopCount(hitVec) <= 1.U, "Overlapping indirect CSR ranges")
+
+    Mux1H(
+      hitVec :+ true.B,
+      dataVec :+ 0.U(ind.xLen.W)
+    )
+  }
+
   val mcsrind_csrs = io.mcsrind.map { mcsrind =>
+    val rdata = indirectCSRReadData(mcsrind)
+
     LinkedHashMap[Int, Bits](
-      CSRs.mireg  -> mcsrind.rdata,
-      CSRs.mireg2 -> mcsrind.rdata,
-      CSRs.mireg3 -> mcsrind.rdata,
-      CSRs.mireg4 -> mcsrind.rdata,
-      CSRs.mireg5 -> mcsrind.rdata,
-      CSRs.mireg6 -> mcsrind.rdata,
+      CSRs.mireg  -> rdata,
+      CSRs.mireg2 -> rdata,
+      CSRs.mireg3 -> rdata,
+      CSRs.mireg4 -> rdata,
+      CSRs.mireg5 -> rdata,
+      CSRs.mireg6 -> rdata,
     )
   }.getOrElse(LinkedHashMap.empty[Int, Bits])
 
   val scsrind_csrs = io.scsrind.map { scsrind =>
+    val rdata = indirectCSRReadData(scsrind)
+
     LinkedHashMap[Int, Bits](
-      CSRs.sireg  -> scsrind.rdata,
-      CSRs.sireg2 -> scsrind.rdata,
-      CSRs.sireg3 -> scsrind.rdata,
-      CSRs.sireg4 -> scsrind.rdata,
-      CSRs.sireg5 -> scsrind.rdata,
-      CSRs.sireg6 -> scsrind.rdata,
+      CSRs.sireg  -> rdata,
+      CSRs.sireg2 -> rdata,
+      CSRs.sireg3 -> rdata,
+      CSRs.sireg4 -> rdata,
+      CSRs.sireg5 -> rdata,
+      CSRs.sireg6 -> rdata,
     )
   }.getOrElse(LinkedHashMap.empty[Int, Bits])
 
@@ -1001,9 +1139,32 @@ class CSRFile(
       )
     }
 
+  val reg_smarctl_rdata =
+    reg_mmarctl.map(_.asUInt.bitSet(2.U, false.B))
+      .getOrElse(0.U(xLen.W))
+
+  val mar_csrs =
+    if (!usingMAR) LinkedHashMap[Int, Bits]()
+    else {
+      val mmarctl_rdata = reg_mmarctl.get.asUInt
+
+      // S-mode view: same control register, but M bit hidden/cleared.
+      val smarctl_rdata = mmarctl_rdata.bitSet(2.U, false.B)
+
+      LinkedHashMap[Int, Bits](
+        MARCSRs.mmarctl    -> mmarctl_rdata,
+        MARCSRs.smarctl    -> smarctl_rdata,
+        MARCSRs.mmarstatus -> reg_smarstatus.get.asUInt,
+        MARCSRs.smarstatus -> reg_smarstatus.get.asUInt,
+        MARCSRs.mmardepth  -> reg_smardepth.get.asUInt,
+        MARCSRs.smardepth  -> reg_smardepth.get.asUInt,
+      )
+    }
+
   read_mapping ++= mcsrind_csrs
   read_mapping ++= scsrind_csrs
   read_mapping ++= ctr_csrs
+  read_mapping ++= mar_csrs
 
 
   val read_mnstatus = WireInit(0.U.asTypeOf(new MNStatus()))
@@ -1064,24 +1225,6 @@ class CSRFile(
     }
 
 
-    // Overflow checking
-    for (((e, c), i) <- (reg_hpmevent zip reg_hpmcounter).zipWithIndex) {
-      val inc = io.counters(i).inc
-      val next = c.value +& inc
-      val willOverflow = next(CSR.hpmWidth)
-
-      when (willOverflow) {
-        e.of := true.B
-      }
-    }
-
-    val hpmOverflowPending =
-      if (reg_hpmevent.nonEmpty) reg_hpmevent.map(_.of).reduce(_ || _)
-      else false.B
-
-    mip.lcofi := hpmOverflowPending
-  
-
     if (usingUser) {
       read_mapping += CSRs.mcounteren -> read_mcounteren
     }
@@ -1107,9 +1250,10 @@ class CSRFile(
     sgeip_mask.sgeip := true.B
     read_mideleg & ~(hs_delegable_interrupts | sgeip_mask.asUInt)
   }
+  val read_sie = reg_mie & sie_mask
+  val read_sip = read_mip & sie_mask
+
   if (usingSupervisor) {
-    val read_sie = reg_mie & sie_mask
-    val read_sip = read_mip & sie_mask
     val read_sstatus = WireDefault(0.U.asTypeOf(new MStatus))
     read_sstatus.sd := io.status.sd
     read_sstatus.uxl := io.status.uxl
@@ -1138,6 +1282,9 @@ class CSRFile(
     read_mapping += CSRs.medeleg -> read_medeleg
     read_mapping += CSRs.senvcfg -> reg_senvcfg.asUInt
     read_mapping += CSRs.sstateen0 -> reg_sstateen0.asUInt
+    read_mapping += CSRs.sstateen1 -> reg_sstateen1
+    read_mapping += CSRs.sstateen2 -> reg_sstateen2
+    read_mapping += CSRs.sstateen3 -> reg_sstateen3
   }
 
   val pmpCfgPerCSR = xLen / new PMPConfig().getWidth
@@ -1647,6 +1794,11 @@ class CSRFile(
         reg_mip.stip := new_mip.stip
         reg_mip.seip := new_mip.seip
       }
+      when (new_mip.lcofi) {
+        softwareSetLcofi := true.B
+      }.otherwise {
+        clearLcofi := true.B
+      }
       if (usingHypervisor) {
         reg_mip.vssip := new_mip.vssip
       }
@@ -1704,6 +1856,30 @@ class CSRFile(
       }
     }
 
+    if (usingMAR) {
+      // S-mode view cannot write the M enable bit.
+      val smarctlWMask = Fill(xLen, 1.B)
+        .bitSet(2.U, false.B)
+
+      val smarctlWData =
+        (reg_mmarctl.get.asUInt & ~smarctlWMask) |
+        (wdata & smarctlWMask)
+
+      when(decoded_addr(MARCSRs.smarctl)) {
+        reg_mmarctl.get := smarctlWData.asTypeOf(reg_mmarctl.get)
+      }
+
+      when(decoded_addr(MARCSRs.mmarctl)) {
+        reg_mmarctl.get := wdata.asTypeOf(reg_mmarctl.get)
+      }
+
+      io.mar.foreach { mar =>
+        when(decoded_addr(MARCSRs.smarstatus) && !mar.smarstatus_next_valid) {
+          reg_smarstatus.get := wdata.asTypeOf(reg_smarstatus.get)
+        }
+      }
+    }
+
     if (usingNMI) {
       val new_mnstatus = wdata.asTypeOf(new MNStatus())
       when (decoded_addr(CSRs.mnscratch)) { reg_mnscratch := wdata }
@@ -1718,11 +1894,24 @@ class CSRFile(
 
     for (((e, c), i) <- (reg_hpmevent zip reg_hpmcounter).zipWithIndex) {
       writeCounter(i + CSR.firstMHPC, c, wdata)
-      when (decoded_addr(i + CSR.firstHPE)) { e := perfEventSets.maskEventSelector(wdata).asTypeOf(new MHPMEvent)
- }
+
+      when (decoded_addr(i + CSR.firstHPE)) {
+        val maskedSelector = maskEventSelector(wdata)
+
+        e.of       := wdata(63)
+        e.minh     := wdata(62)
+        e.sinh     := wdata(61)
+        e.uinh     := wdata(60)
+        e.vsinh    := wdata(59)
+        e.vuinh    := wdata(58)
+        e.eventSel := maskedSelector(57, 0)
+      }
     }
+
     if (coreParams.haveBasicCounters) {
-      when (decoded_addr(CSRs.mcountinhibit)) { reg_mcountinhibit := wdata & ~2.U(xLen.W) }  // mcountinhibit bit [1] is tied zero
+      when (decoded_addr(CSRs.mcountinhibit)) {
+        reg_mcountinhibit := wdata & ~2.U(xLen.W)
+      }
       writeCounter(CSRs.mcycle, reg_cycle, wdata)
       writeCounter(CSRs.minstret, reg_instret, wdata)
     }
@@ -1766,8 +1955,22 @@ class CSRFile(
         }
       }
       when (decoded_addr(CSRs.sip)) {
-        val new_sip = ((read_mip & ~read_mideleg) | (wdata & read_mideleg)).asTypeOf(new MIP())
+        val new_sip =
+          readModifyWriteCSR(
+            io.rw.cmd,
+            read_sip,
+            io.rw.wdata
+          ).asTypeOf(new MIP())
+
         reg_mip.ssip := new_sip.ssip
+
+        when (read_mideleg(13)) {
+          when (new_sip.lcofi) {
+            softwareSetLcofi := true.B
+          }.otherwise {
+            clearLcofi := true.B
+          }
+        }
       }
       when (decoded_addr(CSRs.satp)) {
         if (usingVM) {
@@ -1943,6 +2146,27 @@ class CSRFile(
         reg_vxrm.get := wdata >> 1
       }
     }
+  }
+
+  // Detect real HPM counter overflows every cycle, independently of CSR writes.
+  for (((e, c), i) <- (reg_hpmevent zip reg_hpmcounter).zipWithIndex) {
+    val inc = hpmEffectiveInc(i)
+    val counterEnabled = !reg_mcountinhibit(CSR.firstHPM + i)
+    val next = c.value +& inc
+    val willOverflow = counterEnabled && inc.orR && next(CSR.hpmWidth)
+
+    // A new overflow request is generated only when OF was previously clear.
+    when (willOverflow && !e.of) {
+      e.of := true.B
+      hardwareSetLcofi := true.B
+    }
+  }
+
+  // LCOFIP is a separate, software-clearable pending bit. Set wins over clear.
+  when (hardwareSetLcofi || softwareSetLcofi) {
+    reg_mip.lcofi := true.B
+  }.elsewhen (clearLcofi) {
+    reg_mip.lcofi := false.B
   }
 
   def setCustomCSR(io: CustomCSRIO, csr: CustomCSR, reg: UInt) = {

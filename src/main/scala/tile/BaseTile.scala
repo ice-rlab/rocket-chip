@@ -102,40 +102,87 @@ trait HasNonDiplomaticTileParameters {
     val m = if (tileParams.core.mulDiv.nonEmpty) "m" else ""
     val a = if (tileParams.core.useAtomics) "a" else ""
     val f = if (tileParams.core.fpu.nonEmpty) "f" else ""
-    val d = if (tileParams.core.fpu.nonEmpty && tileParams.core.fpu.get.fLen > 32) "d" else ""
+    val d =
+      if (tileParams.core.fpu.exists(_.fLen > 32)) "d"
+      else ""
     val c = if (tileParams.core.useCompressed) "c" else ""
     val b = if (tileParams.core.useBitmanip) "b" else ""
-    val v = if (tileParams.core.useVector && tileParams.core.vLen >= 128 && tileParams.core.eLen == 64 && tileParams.core.vfLen == 64) "v" else ""
+    val v =
+      if (
+        tileParams.core.useVector &&
+        tileParams.core.vLen >= 128 &&
+        tileParams.core.eLen == 64 &&
+        tileParams.core.vfLen == 64
+      ) "v"
+      else ""
     val h = if (usingHypervisor) "h" else ""
 
-    val ext_strs = Seq(
-      (tileParams.core.useVector) -> s"zvl${tileParams.core.vLen}b",
-      (tileParams.core.useVector) -> {
-        val c = tileParams.core.vfLen match {
+    val zExtensions = Seq(
+      tileParams.core.useZba -> "zba",
+      tileParams.core.useZbb -> "zbb",
+      tileParams.core.useZbs -> "zbs",
+      tileParams.core.useConditionalZero -> "zicond",
+
+      // CSR instructions and hardware performance counters.
+      true -> "zicsr",
+      true -> "zifencei",
+      true -> "zihpm",
+
+      (
+        tileParams.core.fpu.exists(_.fLen >= 16) &&
+        tileParams.core.minFLen <= 16
+      ) -> "zfh",
+
+      tileParams.core.useVector -> {
+        val suffix = tileParams.core.vfLen match {
           case 64 => "d"
           case 32 => "f"
-          case 0 => "x"
+          case 0  => "x"
+          case n =>
+            throw new IllegalArgumentException(
+              s"Unsupported vector floating-point length: $n"
+            )
         }
-        s"zve${tileParams.core.eLen}$c"
-      },
-      (tileParams.core.useVector && tileParams.core.vfh) -> "zvfh",
-      (tileParams.core.fpu.map(_.fLen >= 16).getOrElse(false) && tileParams.core.minFLen <= 16) -> "zfh",
-      (tileParams.core.useZba) -> "zba",
-      (tileParams.core.useZbb) -> "zbb",
-      (tileParams.core.useZbs) -> "zbs",
-      (tileParams.core.useConditionalZero) -> "zicond"
-    ).filter(_._1).map(_._2)
 
-    val multiLetterExt = (
-      // rdcycle[h], rdinstret[h] is implemented
-      // rdtime[h] is not implemented, and could be provided by software emulation
-      // see https://github.com/chipsalliance/rocket-chip/issues/3207
-      //Some(Seq("zicntr")) ++
-      Some(Seq("zicsr", "zifencei", "zihpm")) ++
-      Some(ext_strs) ++ Some(tileParams.core.vExts) ++
-      tileParams.core.customIsaExt.map(Seq(_))
-    ).flatten
-    val multiLetterString = multiLetterExt.mkString("_")
+        s"zve${tileParams.core.eLen}$suffix"
+      },
+
+      tileParams.core.useVector -> s"zvl${tileParams.core.vLen}b",
+      (tileParams.core.useVector && tileParams.core.vfh) -> "zvfh"
+    ).collect {
+      case (true, extension) => extension
+    }
+
+    val supervisorExtensions = Seq(
+      true -> "sscofpmf",
+      (tileParams.core.useCTR || tileParams.core.useMAR) -> "sscsrind",
+      tileParams.core.useCTR -> "ssctr"
+    ).collect {
+      case (true, extension) => extension
+    }
+
+    val machineExtensions = Seq(
+      (tileParams.core.useCTR || tileParams.core.useMAR) -> "smcsrind",
+      tileParams.core.useCTR -> "smctr"
+    ).collect {
+      case (true, extension) => extension
+    }
+
+    val customExtensions =
+      tileParams.core.customIsaExt.toSeq
+
+    val multiLetterExt =
+      (
+        zExtensions.sorted ++
+        tileParams.core.vExts ++
+        supervisorExtensions.sorted ++
+        machineExtensions.sorted ++
+        customExtensions
+      ).distinct
+
+    val multiLetterString =
+      multiLetterExt.mkString("_")
+
     s"rv$xLen$ie$m$a$f$d$c$b$v$h$multiLetterString"
   }
 
