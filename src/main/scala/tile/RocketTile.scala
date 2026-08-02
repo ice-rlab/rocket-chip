@@ -14,14 +14,13 @@ import freechips.rocketchip.diplomacy.{
   AddressSet, BufferParams
 }
 import freechips.rocketchip.resources.{
-  SimpleDevice, Description,
-  ResourceAnchors, ResourceBindings, ResourceBinding, Resource, ResourceAddress,
+  SimpleDevice, Description, PerfEventsResource, ResourceAnchors, ResourceBindings, ResourceBinding, Resource, ResourceAddress
 }
 import freechips.rocketchip.interrupts.IntIdentityNode
 import freechips.rocketchip.tilelink.{TLIdentityNode, TLBuffer}
 import freechips.rocketchip.rocket.{
   RocketCoreParams, ICacheParams, DCacheParams, BTBParams, HasHellaCache,
-  HasICacheFrontend, ScratchpadSlavePort, HasICacheFrontendModule, Rocket
+  HasICacheFrontend, ScratchpadSlavePort, HasICacheFrontendModule, Rocket, RocketPerfEvents
 }
 import freechips.rocketchip.subsystem.HierarchicalElementCrossingParamsLike
 import freechips.rocketchip.prci.{ClockSinkParameters, RationalCrossing, ClockCrossingType}
@@ -147,6 +146,11 @@ class RocketTile private(
   ResourceBinding {
     Resource(cpuDevice, "reg").bind(ResourceAddress(tileId))
   }
+
+  PerfEventsResource.bind(
+    eventToMhpmevent = RocketPerfEvents.pmuMappings,
+    nPerfCounters = tileParams.core.nPerfCounters
+  )
 
   override lazy val module = new RocketTileModuleImp(this)
 

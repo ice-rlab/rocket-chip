@@ -38,6 +38,8 @@ trait CoreParams {
   val instBits: Int
   val useCTR: Boolean
   val nCTREntries: Int
+  val useMAR: Boolean
+  val nMAREntries: Int
   val nLocalInterrupts: Int
   val useNMI: Boolean
   val nPMPs: Int
@@ -135,8 +137,10 @@ trait HasCoreParameters extends HasTileParameters {
 
   val usingCTR = coreParams.useCTR
   val nCTREntries = coreParams.nCTREntries
-  val usingSmcsrind = false 
-  val usingSscsrind = coreParams.useCTR
+  val usingMAR = coreParams.useMAR
+  val nMAREntries = coreParams.nMAREntries
+  val usingSmcsrind = false
+  val usingSscsrind = coreParams.useCTR || coreParams.useMAR
 
   def vLen = coreParams.vLen
   def eLen = coreParams.eLen

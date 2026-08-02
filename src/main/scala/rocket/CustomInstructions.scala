@@ -43,3 +43,20 @@ object CustomCSRs {
   val all32 = {
   }
 }
+
+// Custom CSRs for MAR, but do not need to generate the registers.
+object MARCSRs {
+  val mmarctl    = 0x7d0
+  val mmardepth  = 0x7d1
+  val mmarstatus = 0x7d2
+
+  val smarctl    = 0x5d0
+  val smardepth  = 0x5d1
+  val smarstatus = 0x5d2
+
+  val m = Seq(mmarctl, mmardepth, mmarstatus)
+  val s = Seq(smarctl, smardepth, smarstatus)
+
+  val all = m ++ s
+  val all32 = Seq.empty[Int]
+}

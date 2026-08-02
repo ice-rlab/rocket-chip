@@ -34,6 +34,8 @@ case class RocketCoreParams(
   useZbs: Boolean = false,
   useCTR: Boolean = false,
   nCTREntries: Int = 0,
+  useMAR: Boolean = false,
+  nMAREntries: Int = 0,
   nLocalInterrupts: Int = 0,
   useNMI: Boolean = false,
   nBreakpoints: Int = 1,
@@ -277,7 +279,7 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
         ("Div stall", () => ctrl_stall_div)
     ))
   ))
-
+  
   val pipelinedMul = usingMulDiv && mulDivParams.mulUnroll == xLen
   val decode_table = {
     (if (usingMulDiv) new MDecode(pipelinedMul) +: (xLen > 32).option(new M64Decode(pipelinedMul)).toSeq else Nil) ++:
