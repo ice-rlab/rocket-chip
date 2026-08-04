@@ -269,9 +269,7 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     new EventSet((mask, hits) => (mask & hits).orR, Seq(
         ("uops issued", () => !ctrl_killd),
         ("Fetch Bubbles", () => recovering || ibuf.io.inst(0).valid),
-        ("Recovering", () => recovering),
-        ("Fp stall", () => ctrl_stall_fp),
-        ("Div stall", () => ctrl_stall_div)
+        ("Recovering", () => recovering)
     ))
   ))
   
