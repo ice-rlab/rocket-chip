@@ -561,16 +561,6 @@ class VType(implicit p: Parameters) extends CoreBundle {
   }
 }
 
-class SuperscalarCSRFile(
-  perfEventSets: SuperscalarEventSets = new SuperscalarEventSets(Seq()),
-  customCSRs: Seq[CustomCSR] = Nil,
-  roccCSRs: Seq[CustomCSR] = Nil,
-  hasBeu: Boolean = false)(implicit p: Parameters)
-    extends CSRFile(null, customCSRs, roccCSRs, hasBeu)(p) {
-
-  override def maskEventSelector(wdata: UInt): UInt = perfEventSets.maskEventSelector(wdata)
-
-}
 
 class CSRFile(
   perfEventSets: EventSets = new EventSets(Seq()),
