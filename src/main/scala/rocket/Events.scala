@@ -51,45 +51,35 @@ class EventSet(
 
 class EventSets(val eventSets: Seq[EventSet]) {
   def maskEventSelector(eventSel: UInt): UInt = {
-    // Allow full associativity between counters and event sets.
-    val setMask =
-      (BigInt(1) << eventSetIdBits) - 1
+    // allow full associativity between counters and event sets (for now?)
+    val setMask = (BigInt(1) << eventSetIdBits) - 1
+    val maskMask =
+      ((BigInt(1) << eventSets.map(_.size).max) - 1) << maxEventSetIdBits
 
-    val eventMask =
-      ((BigInt(1) << eventSets.map(_.size).max) - 1) <<
-        maxEventSetIdBits
+    val ofMask =
+      if (eventSel.getWidth == 64) (BigInt(1) << 63)
+      else BigInt(0)
 
-    // Preserve the overflow-enable bit for 64-bit event selectors.
-    val overflowMask =
-      if (eventSel.getWidth == 64)
-        BigInt(1) << 63
-      else
-        BigInt(0)
-
-    eventSel &
-      (setMask | eventMask | overflowMask).U(eventSel.getWidth.W)
+    eventSel & (setMask | maskMask | ofMask).U
   }
 
   private def decode(counter: UInt): (UInt, UInt) = {
-    require(eventSets.size <= (1 << maxEventSetIdBits))
-    require(eventSetIdBits > 0)
-    (counter(eventSetIdBits - 1, 0), counter >> maxEventSetIdBits)
+    val set = counter(eventSetIdBits - 1, 0)
+    val mask = counter >> maxEventSetIdBits
+    (set, mask)
   }
 
   def evaluate(eventSel: UInt): UInt = {
     val (set, mask) = decode(eventSel)
-    val sets = for (e <- eventSets) yield {
-      require(
-        e.hits.getWidth <= mask.getWidth,
-        s"too many events ${e.hits.getWidth} wider than mask ${mask.getWidth}"
-      )
-      e count mask
-    }
-    sets(set)
+    eventSets.zipWithIndex
+      .map { case (eventSet, index) =>
+        (set === index.U) && eventSet.check(mask)
+      }
+      .reduce(_ || _)
   }
 
   def cover() = eventSets.foreach { _.withCovers }
-  
+
   private def eventSetIdBits = log2Ceil(eventSets.size)
   private def maxEventSetIdBits = 8
 
