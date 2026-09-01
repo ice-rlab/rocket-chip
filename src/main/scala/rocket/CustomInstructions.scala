@@ -49,14 +49,39 @@ object MARCSRs {
   val mmarctl    = 0x7d0
   val mmardepth  = 0x7d1
   val mmarstatus = 0x7d2
+  val mmaralb    = 0x7d3
+  val mmaraub    = 0x7d4
 
   val smarctl    = 0x5d0
   val smardepth  = 0x5d1
   val smarstatus = 0x5d2
+  val smaralb    = 0x5d3
+  val smaraub    = 0x5d4
 
-  val m = Seq(mmarctl, mmardepth, mmarstatus)
-  val s = Seq(smarctl, smardepth, smarstatus)
+  val umaralb = 0x8d3
+  val umaraub = 0x8d4
 
-  val all = m ++ s
+  val m = Seq(
+    mmarctl,
+    mmardepth,
+    mmarstatus,
+    mmaralb,
+    mmaraub
+  )
+
+  val s = Seq(
+    smarctl,
+    smardepth,
+    smarstatus,
+    smaralb,
+    smaraub
+  )
+
+  val u = Seq(
+    umaralb,
+    umaraub
+  )
+
+  val all = m ++ s ++ u
   val all32 = Seq.empty[Int]
 }

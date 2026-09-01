@@ -254,13 +254,13 @@ class CTRDepth extends Bundle {
 
 class MARCtl extends Bundle {
   val wpri0    = UInt(57.W)
-  val loadinh  = Bool()
-  val storeinh = Bool()
-  val lcofifrz = Bool()
-  val bpfrz    = Bool()
-  val m        = Bool()
-  val s        = Bool()
-  val u        = Bool()
+  val loadinh  = Bool() // 6
+  val storeinh = Bool() // 5
+  val lcofifrz = Bool() // 4
+  val bpfrz    = Bool() // 3
+  val m        = Bool() // 2
+  val s        = Bool() // 1
+  val u        = Bool() // 0
 }
 
 class MARDepth extends Bundle {
@@ -269,10 +269,10 @@ class MARDepth extends Bundle {
 }
 
 class MARStatus extends Bundle {
-  val wpri0  = UInt(31.W)
-  val frozen = Bool()
-  val wpri1  = UInt(24.W)
-  val wrptr  = UInt(8.W)
+  val wpri0  = UInt(32.W) // [63:32]
+  val frozen = Bool() // [31]
+  val wpri1  = UInt(23.W) // [30:8]
+  val wrptr  = UInt(8.W) // [7:0]
 }
 
 case class IndirectCSRRange(
@@ -500,8 +500,11 @@ class CSRFileIO(hasBeu: Boolean)(implicit p: Parameters) extends CoreBundle
     val smarstatus = Output(new MARStatus())
     val smardepth = Output(new MARDepth())
 
+    val smaralb = Output(UInt(xLen.W))
+    val smaraub = Output(UInt(xLen.W))
+
     val smarstatus_next = Input(new MARStatus())
-    val smarstatus_next_valid = Input(new Bool())
+    val smarstatus_next_valid = Input(Bool())
   })
 }
 
@@ -896,7 +899,7 @@ class CSRFile(
     // ctr.sctrclr := io.rw.cmd === CSR.I && io.rw.addr === SCTRCLR_ADDR.U
   }
 
-  // Mar registers and handling
+  // MAR registers and handling
   require(!usingMAR || usingSupervisor,
     "MAR requires S-mode / usingSupervisor")
 
@@ -916,10 +919,21 @@ class CSRFile(
       Seq(16, 32, 64, 128, 256).contains(nMAREntries),
       "nMAREntries must be one of 16, 32, 64, 128, 256"
     )
-    println(s"nMAREntries = $nMAREntries, smardepth encoding = ${log2Ceil(nMAREntries) - 4}")
+    println(
+      s"nMAREntries = $nMAREntries, " +
+      s"smardepth encoding = ${log2Ceil(nMAREntries) - 4}"
+    )
 
     r.depth := depthEnc.U
     r
+  }
+
+  val reg_smaralb = usingMAR.option {
+    RegInit(0.U(xLen.W))
+  }
+
+  val reg_smaraub = usingMAR.option {
+    RegInit(0.U(xLen.W))
   }
 
   for {
@@ -927,10 +941,15 @@ class CSRFile(
     marctl <- reg_mmarctl
     smarstatus <- reg_smarstatus
     smardepth <- reg_smardepth
+    smaralb <- reg_smaralb
+    smaraub <- reg_smaraub
   } {
-    mar.marctl    := marctl
+    mar.marctl     := marctl
     mar.smarstatus := smarstatus
     mar.smardepth  := smardepth
+
+    mar.smaralb := smaralb
+    mar.smaraub := smaraub
   }
 
   for {
@@ -1134,20 +1153,33 @@ class CSRFile(
       .getOrElse(0.U(xLen.W))
 
   val mar_csrs =
-    if (!usingMAR) LinkedHashMap[Int, Bits]()
-    else {
-      val mmarctl_rdata = reg_mmarctl.get.asUInt
+    if (!usingMAR) {
+      LinkedHashMap[Int, Bits]()
+    } else {
+      val mmarctl_rdata =
+        reg_mmarctl.get.asUInt
 
       // S-mode view: same control register, but M bit hidden/cleared.
-      val smarctl_rdata = mmarctl_rdata.bitSet(2.U, false.B)
+      val smarctl_rdata =
+        mmarctl_rdata.bitSet(2.U, false.B)
 
       LinkedHashMap[Int, Bits](
         MARCSRs.mmarctl    -> mmarctl_rdata,
         MARCSRs.smarctl    -> smarctl_rdata,
+
         MARCSRs.mmarstatus -> reg_smarstatus.get.asUInt,
         MARCSRs.smarstatus -> reg_smarstatus.get.asUInt,
+
         MARCSRs.mmardepth  -> reg_smardepth.get.asUInt,
         MARCSRs.smardepth  -> reg_smardepth.get.asUInt,
+
+        MARCSRs.mmaralb    -> reg_smaralb.get,
+        MARCSRs.smaralb    -> reg_smaralb.get,
+        MARCSRs.umaralb    -> reg_smaralb.get,
+
+        MARCSRs.mmaraub    -> reg_smaraub.get,
+        MARCSRs.smaraub    -> reg_smaraub.get,
+        MARCSRs.umaraub    -> reg_smaraub.get
       )
     }
 
@@ -1848,25 +1880,66 @@ class CSRFile(
 
     if (usingMAR) {
       // S-mode view cannot write the M enable bit.
-      val smarctlWMask = Fill(xLen, 1.B)
-        .bitSet(2.U, false.B)
+      val smarctlWMask =
+        Fill(xLen, 1.B)
+          .bitSet(2.U, false.B)
 
       val smarctlWData =
         (reg_mmarctl.get.asUInt & ~smarctlWMask) |
         (wdata & smarctlWMask)
 
       when(decoded_addr(MARCSRs.smarctl)) {
-        reg_mmarctl.get := smarctlWData.asTypeOf(reg_mmarctl.get)
+        reg_mmarctl.get :=
+          smarctlWData.asTypeOf(
+            reg_mmarctl.get
+          )
       }
 
       when(decoded_addr(MARCSRs.mmarctl)) {
-        reg_mmarctl.get := wdata.asTypeOf(reg_mmarctl.get)
+        reg_mmarctl.get :=
+          wdata.asTypeOf(
+            reg_mmarctl.get
+          )
       }
 
       io.mar.foreach { mar =>
-        when(decoded_addr(MARCSRs.smarstatus) && !mar.smarstatus_next_valid) {
-          reg_smarstatus.get := wdata.asTypeOf(reg_smarstatus.get)
+        when(
+          decoded_addr(MARCSRs.smarstatus) &&
+            !mar.smarstatus_next_valid
+        ) {
+          reg_smarstatus.get :=
+            wdata.asTypeOf(
+              reg_smarstatus.get
+            )
         }
+
+        when(
+          decoded_addr(MARCSRs.mmarstatus) &&
+            !mar.smarstatus_next_valid
+        ) {
+          reg_smarstatus.get :=
+            wdata.asTypeOf(
+              reg_smarstatus.get
+            )
+        }
+      }
+
+      when(
+        decoded_addr(MARCSRs.umaralb) ||
+          decoded_addr(MARCSRs.smaralb) ||
+          decoded_addr(MARCSRs.mmaralb)
+      ) {
+        reg_smaralb.get :=
+          wdata
+      }
+
+      when(
+        decoded_addr(MARCSRs.umaraub) ||
+          decoded_addr(MARCSRs.smaraub) ||
+          decoded_addr(MARCSRs.mmaraub)
+      ) {
+        reg_smaraub.get :=
+          wdata
       }
     }
 
