@@ -861,6 +861,11 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   val s2_hit_state = Mux1H(s2_tag_match_way, wayMap((w: Int) => RegEnable(meta.io.resp(w).coh, s1_clk_en)))
   val (s2_has_permission, _, s2_new_hit_state) = s2_hit_state.onAccess(s2_req.cmd)
   val s2_hit = s2_tag_match && s2_has_permission && s2_hit_state === s2_new_hit_state
+  // Peek: a cacheable read with no_alloc set. It is answered from the cache if the line is present and otherwise
+  // responds as a miss (has_data = false) without allocating an MSHR, so it never fetches, evicts or probes anything.
+  // Nothing in the core sets no_alloc on this cache, so only an external requestor that opts in gets this behavior.
+  val s2_cacheable = edge.manager.supportsAcquireBFast(s2_req.addr, lgCacheBlockBytes.U)
+  val s2_peek = s2_req.no_alloc && isRead(s2_req.cmd) && !isPrefetch(s2_req.cmd) && s2_cacheable
 
   // load-reserved/store-conditional
   val lrsc_count = RegInit(0.U)
@@ -879,7 +884,7 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
       lrsc_count := 0.U
     }
   }
-  when (s2_valid_masked && !(s2_tag_match && s2_has_permission) && s2_lrsc_addr_match) {
+  when (s2_valid_masked && !(s2_tag_match && s2_has_permission) && !s2_peek && s2_lrsc_addr_match) {
     lrsc_count := 0.U
   }
 
@@ -922,7 +927,7 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   val s2_repl_meta = Mux1H(s2_replaced_way_en, wayMap((w: Int) => RegEnable(meta.io.resp(w), s1_clk_en && s1_replaced_way_en(w))).toSeq)
 
   // miss handling
-  mshrs.io.req.valid := s2_valid_masked && !s2_hit && (isPrefetch(s2_req.cmd) || isRead(s2_req.cmd) || isWrite(s2_req.cmd))
+  mshrs.io.req.valid := s2_valid_masked && !s2_hit && !s2_peek && (isPrefetch(s2_req.cmd) || isRead(s2_req.cmd) || isWrite(s2_req.cmd))
   mshrs.io.req.bits.viewAsSupertype(new Replay) := s2_req.viewAsSupertype(new HellaCacheReq)
   mshrs.io.req.bits.tag_match := s2_tag_match
   mshrs.io.req.bits.old_meta := Mux(s2_tag_match, L1Metadata(s2_repl_meta.tag, s2_hit_state), s2_repl_meta)
@@ -1072,7 +1077,7 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   val s2_nack_hit = RegEnable(s1_nack, s1_valid || s1_replay)
   when (s2_nack_hit) { mshrs.io.req.valid := false.B }
   val s2_nack_victim = s2_hit && mshrs.io.secondary_miss
-  val s2_nack_miss = !s2_hit && !mshrs.io.req.ready
+  val s2_nack_miss = !s2_hit && !s2_peek && !mshrs.io.req.ready
   val s2_nack = s2_nack_hit || s2_nack_victim || s2_nack_miss
   s2_valid_masked := s2_valid && !s2_nack && !io.cpu.s2_kill
 
@@ -1089,7 +1094,7 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   }
 
   val cache_resp = Wire(Valid(new HellaCacheResp))
-  cache_resp.valid := (s2_replay || s2_valid_masked && s2_hit) && !s2_data_correctable
+  cache_resp.valid := (s2_replay || s2_valid_masked && (s2_hit || s2_peek)) && !s2_data_correctable
   cache_resp.bits.addr := s2_req.addr
   cache_resp.bits.idx.foreach(_ := s2_req.idx.get)
   cache_resp.bits.tag := s2_req.tag
@@ -1101,7 +1106,7 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   cache_resp.bits.data_word_bypass := loadgen.wordData
   cache_resp.bits.data_raw := s2_data_word
   cache_resp.bits.mask := s2_req.mask
-  cache_resp.bits.has_data := isRead(s2_req.cmd)
+  cache_resp.bits.has_data := isRead(s2_req.cmd) && !(s2_peek && !s2_hit) // a peek miss returns no data
   cache_resp.bits.data := loadgen.data | s2_sc_fail
   cache_resp.bits.store_data := s2_req.data
   cache_resp.bits.replay := s2_replay
