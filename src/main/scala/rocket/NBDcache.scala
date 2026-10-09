@@ -929,6 +929,66 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   mshrs.io.req.bits.way_en := Mux(s2_tag_match, s2_tag_match_way, s2_replaced_way_en)
   mshrs.io.req.bits.data := s2_req.data
   when (mshrs.io.req.fire) { replacer.miss }
+
+  // PrefetchProf events (physical block-granular addresses, all sampled in the s2 stage):
+  //  - l1d_demand:  a core load/store/AMO reaching s2 (not a prefetch)
+  //  - l1d_pf_fill: a prefetch that allocates a new MSHR for a line not present in the cache, i.e. a block brought in
+  //  - l1d_evict:   a valid line chosen as the victim when a new MSHR is allocated (clean or dirty), with its address
+  val pp_new_miss     = mshrs.io.req.fire && !mshrs.io.secondary_miss && !s2_tag_match
+  // Uncached (e.g., MMIO) accesses also pass through here; they are not cache accesses, so they are excluded.
+  val pp_cacheable    = s2_cacheable
+  // Requests from an external prefetch port (a RoCC prefetcher behind typeawareprefetcher.ExternalPrefetchPortWrapper)
+  // are plain loads tagged with the reserved requestor index. They are prefetches for PrefetchProf, never demand.
+  val pp_ext          = if (p(ExternalPrefetchPortKey).contains(tileParams.tileId))
+    s2_req.tag(log2Ceil(dcacheArbPorts) - 1, 0) === (dcacheArbPorts - 1).U else false.B
+  val pp_is_pf        = isPrefetch(s2_req.cmd) || pp_ext || s2_peek
+  val pp_demand       = s2_valid_masked && (isRead(s2_req.cmd) || isWrite(s2_req.cmd)) && !pp_is_pf && pp_cacheable
+  // A demand access accepted into the MSHR file: a miss (including a permission upgrade on a present line). Secondary
+  // misses merge into an MSHR already fetching the line (e.g., a prefetch in flight). A nacked access isn't counted
+  // until it is accepted, so each miss is counted once.
+  val pp_demand_miss  = mshrs.io.req.fire && !pp_is_pf && pp_cacheable
+  val pp_demand_miss2 = pp_demand_miss && mshrs.io.secondary_miss
+  val pp_pf_fill      = pp_new_miss && pp_is_pf
+  val pp_evict        = pp_new_miss && s2_repl_meta.coh.isValid()
+  val pp_evict_addr   = Cat(s2_repl_meta.tag, s2_req.addr(untagBits-1, blockOffBits), 0.U(blockOffBits.W))
+  midas.targetutils.PrefetchProfTarget(pp_demand, "l1d_demand", "L1D demand access (core load/store/AMO) in s2")
+  val pp_req_addr     = WireInit(s2_req.addr)
+  midas.targetutils.PrefetchProfTarget(pp_req_addr, "l1d_req_addr", "L1D s2 request address (demand and prefetch)")
+  // Cache geometry for exact per-line tracking: the set the s2 request maps to, and the way a new miss will fill.
+  val pp_set          = WireInit(s2_req.addr(untagBits-1, blockOffBits))
+  val pp_fill_way     = WireInit(OHToUInt(s2_replaced_way_en))
+  // The line for this s2 request is present with valid metadata, i.e. any fill for it has arrived. A line that is still
+  // being fetched has its metadata cleared until the refill completes, so this is false for a demand that catches up
+  // with an outstanding prefetch.
+  val pp_present      = WireInit(s2_tag_match)
+  midas.targetutils.PrefetchProfTarget(pp_present, "l1d_present", "L1D s2 request finds its line present (fill arrived)")
+  midas.targetutils.PrefetchProfTarget(pp_set, "l1d_set", "L1D set index of the s2 request")
+  midas.targetutils.PrefetchProfTarget(pp_fill_way, "l1d_fill_way", "L1D way chosen for a new miss (the victim's way)")
+  midas.targetutils.PrefetchProfTarget(pp_demand_miss, "l1d_demand_miss", "L1D demand access that misses (accepted into an MSHR)")
+  midas.targetutils.PrefetchProfTarget(pp_demand_miss2, "l1d_demand_miss_secondary", "L1D demand miss merged into an in-flight MSHR")
+  midas.targetutils.PrefetchProfTarget(pp_pf_fill, "l1d_pf_fill", "L1D prefetch miss that starts a line fill", p(PrefetchProfTagKey))
+  midas.targetutils.PrefetchProfTarget(pp_evict, "l1d_evict", "L1D valid victim line chosen for replacement")
+  midas.targetutils.PrefetchProfTarget(pp_evict_addr, "l1d_evict_addr", "L1D victim block address")
+
+  // PrefetchProf: traffic between the L1D and the next level, on the TileLink A/C/D channels, for cached lines only
+  // (uncached MMIO accesses are not counted). Data is annotated as bytes moved this cycle, so the bridge can sum it
+  // without knowing the bus width:
+  //  - l1d_in_bytes:      GrantData beats received (lines fetched, by demand or prefetch)
+  //  - l1d_out_bytes:     ReleaseData / ProbeAckData beats sent (dirty lines written back)
+  //  - l1d_acquire:       Acquire requests sent (a line, or only a permission upgrade)
+  //  - l1d_release_ctrl:  Release / ProbeAck messages without data (clean evictions and probe replies)
+  private val pp_tl_beat_bytes = tl_out.d.bits.data.getWidth / 8
+  val pp_tl_in_bytes   = WireInit(Mux(tl_out.d.fire && tl_out.d.bits.opcode === TLMessages.GrantData, pp_tl_beat_bytes.U, 0.U))
+  val pp_tl_out_bytes  = WireInit(Mux(tl_out.c.fire &&
+    (tl_out.c.bits.opcode === TLMessages.ReleaseData || tl_out.c.bits.opcode === TLMessages.ProbeAckData), pp_tl_beat_bytes.U, 0.U))
+  val pp_tl_acquire    = WireInit(tl_out.a.fire &&
+    (tl_out.a.bits.opcode === TLMessages.AcquireBlock || tl_out.a.bits.opcode === TLMessages.AcquirePerm))
+  val pp_tl_ctrl       = WireInit(tl_out.c.fire &&
+    (tl_out.c.bits.opcode === TLMessages.Release || tl_out.c.bits.opcode === TLMessages.ProbeAck))
+  midas.targetutils.PrefetchProfTarget(pp_tl_in_bytes,  "l1d_in_bytes",     "L1D bytes received from the next level (GrantData)")
+  midas.targetutils.PrefetchProfTarget(pp_tl_out_bytes, "l1d_out_bytes",    "L1D bytes written back to the next level (ReleaseData/ProbeAckData)")
+  midas.targetutils.PrefetchProfTarget(pp_tl_acquire,   "l1d_acquire",      "L1D Acquire requests sent")
+  midas.targetutils.PrefetchProfTarget(pp_tl_ctrl,      "l1d_release_ctrl", "L1D Release/ProbeAck messages without data")
   tl_out.a <> mshrs.io.mem_acquire
 
   // replays
