@@ -349,6 +349,7 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val recovering_csr_flush = Reg(Bool())
 
   val wb_reg_valid           = Reg(Bool())
+  midas.targetutils.PerfCounter(wb_reg_valid, "retired", "Instructions retired")
   val wb_reg_xcpt            = Reg(Bool())
   val wb_reg_replay          = Reg(Bool())
   val wb_reg_flush_pipe      = Reg(Bool())
@@ -1216,6 +1217,11 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   io.dmem.req.bits.data := DontCare
   io.dmem.req.bits.mask := DontCare
 
+  // PrefetchProf: every memory request the core issues to the D-cache, and its (virtual) address.
+  val dmem_req_fire = io.dmem.req.valid && io.dmem.req.ready
+  midas.targetutils.PrefetchProfTarget(dmem_req_fire, "dmem_req_fire", "D-cache request accepted")
+  midas.targetutils.PrefetchProfTarget(io.dmem.req.bits.addr, "dmem_addr", "D-cache request address")
+
   io.dmem.s1_data.data := (if (fLen == 0) mem_reg_rs2 else Mux(mem_ctrl.fp, Fill(coreDataBits / fLen, io.fpu.store_data), mem_reg_rs2))
   io.dmem.s1_data.mask := DontCare
 
@@ -1275,6 +1281,9 @@ class Rocket (tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   coreMonitorBundle.priv_mode := csr.io.trace(0).priv
 
   midas.targetutils.TraceDoctorTarget(csr.io.time, "time", "cycle counter")
+  midas.targetutils.PrefetchProfTarget(wb_valid, "instr_ret", "Instruction retired this cycle")
+  // PC of the instruction in writeback: the closest core PC to the memory access that triggers a prefetch
+  midas.targetutils.PrefetchProfTarget(wb_reg_pc, "core_pc", "Rocket writeback-stage PC")
 
   if (enableCommitLog) {
     val t = csr.io.trace(0)
