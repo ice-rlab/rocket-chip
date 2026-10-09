@@ -1832,7 +1832,8 @@ class CSRFile(
       when (decoded_addr(CSRs.mtvec))  { reg_mtvec := wdata }
     when (decoded_addr(CSRs.mcause))   { reg_mcause := wdata & ((BigInt(1) << (xLen-1)) + (BigInt(1) << whichInterrupt.getWidth) - 1).U }
     when(decoded_addr(CSRs.miselect)) { reg_miselect := wdata}
-    when(decoded_addr(CSRs.siselect)) { reg_siselect := wdata}
+    if (usingSupervisor)
+      when(decoded_addr(CSRs.siselect)) { reg_siselect := wdata}
     io.mcsrind.foreach { mcsrind =>
       when (decoded_addr(CSRs.mireg))  { mcsrind.wen := true.B; mcsrind.wdata := wdata }
       when (decoded_addr(CSRs.mireg2)) { mcsrind.wen := true.B; mcsrind.wdata := wdata }
@@ -1959,14 +1960,15 @@ class CSRFile(
       writeCounter(i + CSR.firstMHPC, c, wdata)
 
       when (decoded_addr(i + CSR.firstHPE)) {
-        val maskedSelector = maskEventSelector(wdata)
+        val wdata64 = wdata.pad(64)
+        val maskedSelector = maskEventSelector(wdata64)
 
-        e.of       := wdata(63)
-        e.minh     := wdata(62)
-        e.sinh     := wdata(61)
-        e.uinh     := wdata(60)
-        e.vsinh    := wdata(59)
-        e.vuinh    := wdata(58)
+        e.of       := wdata64(63)
+        e.minh     := wdata64(62)
+        e.sinh     := wdata64(61)
+        e.uinh     := wdata64(60)
+        e.vsinh    := wdata64(59)
+        e.vuinh    := wdata64(58)
         e.eventSel := maskedSelector(57, 0)
       }
     }
