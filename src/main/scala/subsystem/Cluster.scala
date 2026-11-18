@@ -213,6 +213,7 @@ trait CanAttachCluster {
         resetCrossingType = crossingParams.resetCrossingType)
       context.traceNodes(hartid) := traceNexusNode := node
     }
+
     domain.element.traceCoreNodes.foreach { case (hartid, node) =>
       val traceCoreNexusNode = BundleBridgeBlockDuringReset[TraceCoreInterface](
         resetCrossingType = crossingParams.resetCrossingType)

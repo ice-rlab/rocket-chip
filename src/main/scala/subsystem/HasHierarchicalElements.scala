@@ -17,7 +17,7 @@ import freechips.rocketchip.interrupts.{
 import freechips.rocketchip.tile.{TileParams, TilePRCIDomain, BaseTile, NMI, TraceBundle}
 import freechips.rocketchip.tilelink.{TLNode, TLBuffer, TLCacheCork, TLTempNode, TLFragmenter}
 import freechips.rocketchip.prci.{ClockCrossingType, ClockGroup, ResetCrossingType, ClockGroupNode, ClockDomain}
-import freechips.rocketchip.rocket.TracedInstruction
+import freechips.rocketchip.rocket.{TracedInstruction}
 import freechips.rocketchip.trace.TraceCoreInterface
 
 import scala.collection.immutable.SortedMap
